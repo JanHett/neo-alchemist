@@ -1,0 +1,3 @@
+[submodule "external/OpenColorIO-Configs"]
+	path = external/OpenColorIO-Configs
+	url = https://github.com/colour-science/OpenColorIO-Configs.git
