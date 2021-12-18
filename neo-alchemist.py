@@ -1,5 +1,5 @@
 import sys
-from ui.MainWindow import MainWindow
+from src.ui.MainWindow import MainWindow
 from PySide6.QtWidgets import QApplication
 import argparse
 

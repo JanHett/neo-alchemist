@@ -7,52 +7,14 @@ from PySide6.QtCore import QRect, Qt
 from PySide6.QtWidgets import QDockWidget, QGridLayout, QGroupBox, QLabel, QSlider, QDoubleSpinBox, QVBoxLayout, QWidget
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtGui import QColor, QImage, QPaintEvent, QPainter
-from numpy.lib.type_check import imag
 from superqt import QRangeSlider, QDoubleSlider
 import numpy as np
 
 import rawpy
 from math import floor
 
-class LabelledSlider(QWidget):
-    def __init__(self, label: str, parent: Optional[QWidget] = None, f: Qt.WindowFlags = Qt.WindowFlags()) -> None:
-        super().__init__(parent=parent, f=f)
-
-        self.label = QLabel(label, self)
-        self.spinbox = QDoubleSpinBox(self)
-        self.spinbox.setStepType(QDoubleSpinBox.AdaptiveDecimalStepType)
-        self.spinbox.setDecimals(4)
-        self.slider = QDoubleSlider(Qt.Horizontal, self)
-
-        def update_spinbox():
-            self.spinbox.setValue(self.slider.value())
-
-        def update_slider():
-            self.slider.setValue(self.spinbox.value())
-
-        self.slider.sliderReleased.connect(update_spinbox)
-        self.spinbox.editingFinished.connect(update_slider)
-
-        self._layout = QGridLayout(self)
-        self._layout.setColumnStretch(0, 2)
-        self._layout.setColumnStretch(1, 1)
-        self._layout.addWidget(self.label, 0, 0)
-        self._layout.addWidget(self.spinbox, 0, 1)
-        self._layout.addWidget(self.slider, 1, 0, 1, 2)
-
-        self.setLayout(self._layout)
-
-    def setValue(self, v: float) -> None:
-        self.slider.setValue(v)
-        self.spinbox.setValue(v)
-
-    def setMaximum(self, v: float) -> None:
-        self.slider.setMaximum(v)
-        self.spinbox.setMaximum(v)
-
-    def setMinimum(self, v: float) -> None:
-        self.slider.setMinimum(v)
-        self.spinbox.setMinimum(v)
+from ..processing.spells import gamma, linear_contrast, highlow_balance, invert, white_balance
+from .Widgets import LabelledSlider, ColorBalanceWidget, ImageRenderer
 
 class PropertiesPane(QGroupBox):
     def __init__(self, histogram, parent: Optional[QWidget] = None) -> None:
@@ -147,93 +109,11 @@ class PropertiesPane(QGroupBox):
 
         self.setLayout(self._layout)
 
-class ImageRenderer(QOpenGLWidget):
-    def __init__(self,
-        image: np.ndarray,
-        parent: Optional[QWidget] = None,
-        f: Qt.WindowFlags = Qt.WindowFlags()
-        ) -> None:
-        super().__init__(parent=parent, f=f)
-        self.image = image
-        self.setFixedSize(self.image.shape[1], self.image.shape[0])
-
-        self._overlay = []
-
-    @property
-    def width(self):
-        return self.image.shape[1]
-
-    @property
-    def height(self):
-        return self.image.shape[0]
-
-    def paintEvent(self, event: QPaintEvent):
-        # transform from 0..1 float to 0..255 int
-        flat = self.image.clip(0, 1) * 255
-        flat = flat.astype(np.uint32)
-
-        # shift values into the correct position and create QImage from flat array
-        flat = (255 << 24
-            | flat[:,:,0] << 16
-            | flat[:,:,1] << 8
-            | flat[:,:,2]).flatten()
-        img = QImage(flat,
-            self.image.shape[1], self.image.shape[0],
-            QImage.Format_ARGB32)
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # draw the image
-        painter.drawImage(0, 0, img)
-        # draw overlays
-        painter.setPen(QColor(0, 255, 0))
-        painter.drawRects(self._overlay)
-
-    @property
-    def overlay(self):
-        return self.overlay
-    
-    @overlay.setter
-    def overlay(self, overlay: list[QRect]):
-        self._overlay = overlay
-
 ####################################################
 # Business logic
 #
 # TODO: Move to its own file
 ####################################################
-
-def gamma(image, gamma):
-    return np.maximum(0, image) ** gamma
-
-def linear_contrast(image, shadows: float, highlights: float):
-    """
-    Adjust contrast linearly to parameters
-    """
-
-    slope = highlights - shadows
-
-    return image * slope + shadows
-
-def highlow_balance(image,
-    shadow_red, shadow_green, shadow_blue,
-    high_red, high_green, high_blue):
-    """
-    Adjust the balance of the highlights
-    """
-    shadows = np.array((shadow_red, shadow_green, shadow_blue))
-    highs = np.array((high_red, high_green, high_blue))
-
-    slope = highs - shadows
-    return image * slope + shadows
-
-def invert(image):
-    # max_r = np.max(image[..., 0])
-    # max_g = np.max(image[..., 1])
-    # max_b = np.max(image[..., 2])
-
-    return 1 - image
 
 class Editor():
     def __init__(self, img_path) -> None:
@@ -289,13 +169,8 @@ class Editor():
         """
         # return self._fit_image(self._linear_white_balanced, fit)
         fitted = self._fit_image(self._uncorrected_linear, fit)
-        wb = self.white_balance
 
-        fitted[:,:,0] *= wb[0]
-        fitted[:,:,1] *= wb[1]
-        fitted[:,:,2] *= wb[2]
-
-        return fitted
+        return white_balance(fitted, self.white_balance)
 
     def inverted(self, fit: tuple[int]) -> np.ndarray:
         """
@@ -333,6 +208,14 @@ class Editor():
 
         out = invert(out)
         out = linear_contrast(out, self.shadows, self.highlights)
+        out = highlow_balance(out,
+            self.shadow_red,
+            self.shadow_green,
+            self.shadow_blue,
+            self.high_red,
+            self.high_green,
+            self.high_blue
+            )
         out = gamma(out, self.gamma)
 
         return out
