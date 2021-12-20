@@ -7,7 +7,7 @@ from PySide6.QtCore import QRect, Qt
 from PySide6.QtWidgets import QDockWidget, QGridLayout, QGroupBox, QLabel, QSlider, QDoubleSpinBox, QVBoxLayout, QWidget
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtGui import QColor, QImage, QPaintEvent, QPainter
-from superqt import QRangeSlider, QDoubleSlider
+from superqt import QRangeSlider
 import numpy as np
 
 import rawpy
@@ -45,16 +45,16 @@ class PropertiesPane(QGroupBox):
         self.shadows.setValue(0)
 
         self.shadow_red = LabelledSlider("Shadows: Red", self.shadows_group)
-        self.shadow_red.setMinimum(-0.3)
-        self.shadow_red.setMaximum(0.3)
+        self.shadow_red.setMinimum(-0.1)
+        self.shadow_red.setMaximum(0.1)
         self.shadow_red.setValue(0)
         self.shadow_green = LabelledSlider("Shadows: Green", self.shadows_group)
-        self.shadow_green.setMinimum(-0.3)
-        self.shadow_green.setMaximum(0.3)
+        self.shadow_green.setMinimum(-0.1)
+        self.shadow_green.setMaximum(0.1)
         self.shadow_green.setValue(0)
         self.shadow_blue = LabelledSlider("Shadows: Blue", self.shadows_group)
-        self.shadow_blue.setMinimum(-0.3)
-        self.shadow_blue.setMaximum(0.3)
+        self.shadow_blue.setMinimum(-0.1)
+        self.shadow_blue.setMaximum(0.1)
         self.shadow_blue.setValue(0)
 
         self.shadows_layout.addWidget(self.shadows)
@@ -76,16 +76,16 @@ class PropertiesPane(QGroupBox):
         self.highlights.setValue(1)
 
         self.high_red = LabelledSlider("Highlights: Red", self.highlights_group)
-        self.high_red.setMinimum(0.9)
-        self.high_red.setMaximum(1.1)
+        self.high_red.setMinimum(0.95)
+        self.high_red.setMaximum(1.05)
         self.high_red.setValue(1)
         self.high_green = LabelledSlider("Highlights: Green", self.highlights_group)
-        self.high_green.setMinimum(0.9)
-        self.high_green.setMaximum(1.1)
+        self.high_green.setMinimum(0.95)
+        self.high_green.setMaximum(1.05)
         self.high_green.setValue(1)
         self.high_blue = LabelledSlider("Highlights: Blue", self.highlights_group)
-        self.high_blue.setMinimum(0.9)
-        self.high_blue.setMaximum(1.1)
+        self.high_blue.setMinimum(0.95)
+        self.high_blue.setMaximum(1.05)
         self.high_blue.setValue(1)
 
         self.highlights_layout.addWidget(self.highlights)
@@ -129,6 +129,7 @@ class Editor():
             ), dtype=np.float32) / np.iinfo(np.uint16).max
 
         self._white_balance_sample_area = (0.45, 0.45, 0.01, 0.01)
+        self.post_white_balance_sample_area = (0.45, 0.45, 0.01, 0.01)
 
         self.shadows = 0
         self.highlights = 1
@@ -179,8 +180,14 @@ class Editor():
         """
         return invert(self.white_balanced_linear(fit))
 
+    def post_white_balanced_linear(self, fit: tuple[int]) -> np.ndarray:
+        """
+        The white balanced image scaled to fit the resolution defined in `fit`
+        """
+        return white_balance(self.inverted(fit), self.post_white_balance)
+
     def linear_contrast_adjusted(self, fit: tuple[int]) -> np.ndarray:
-        return linear_contrast(self.inverted(fit), self.shadows, self.highlights)
+        return linear_contrast(self.post_white_balanced_linear(fit), self.shadows, self.highlights)
 
     def highlow_balance_adjusted(self, fit: tuple[int]) -> np.ndarray:
         return highlow_balance(self.linear_contrast_adjusted(fit),
@@ -255,6 +262,30 @@ class Editor():
 
         return [avg_g/avg_r, 1.0, avg_g/avg_b, 1.0]
 
+    @property
+    def post_white_balance(self):
+        """
+        Calculate the white balance over the `post_white_balance_sample_area` of `inverted`
+        """
+        proxy = self.inverted((256, 256))
+
+        w = proxy.shape[0]
+        h = proxy.shape[1]
+
+        y1 = int(self.post_white_balance_sample_area[1] * h)
+        y2 = int((self.post_white_balance_sample_area[1] + self.post_white_balance_sample_area[3]) * h)
+
+        x1 = int(self.post_white_balance_sample_area[0] * w)
+        x2 = int((self.post_white_balance_sample_area[0] + self.post_white_balance_sample_area[2]) * w)
+
+        wb_patch = proxy[y1:y2, x1:x2]
+
+        avg_r = np.average(wb_patch[..., 0])
+        avg_g = np.average(wb_patch[..., 1])
+        avg_b = np.average(wb_patch[..., 2])
+
+        return [avg_g/avg_r, 1.0, avg_g/avg_b, 1.0]
+
 ####################################################
 # End of Business logic
 ####################################################
@@ -280,6 +311,9 @@ class MainWindow(QWidget):
         viewer = ImageRenderer(img, self)
         vertical_wb_range = QRangeSlider()
         horizontal_wb_range = QRangeSlider(Qt.Horizontal)
+
+        vertical_post_wb_range = QRangeSlider()
+        horizontal_post_wb_range = QRangeSlider(Qt.Horizontal)
 
         def compute_histogram(buckets = 256, height = 128):
             img = get_image((256, 256))
@@ -309,12 +343,20 @@ class MainWindow(QWidget):
             viewer.image = get_image((1024, 1024))
             props.histogram.image = compute_histogram()
 
-            viewer.overlay = [QRect(
-                editor.white_balance_sample_area[0] * viewer.width,
-                editor.white_balance_sample_area[1] * viewer.height,
-                editor.white_balance_sample_area[2] * viewer.width,
-                editor.white_balance_sample_area[3] * viewer.height,
-                )]
+            viewer.overlay = [
+                QRect(
+                    editor.white_balance_sample_area[0] * viewer.width,
+                    editor.white_balance_sample_area[1] * viewer.height,
+                    editor.white_balance_sample_area[2] * viewer.width,
+                    editor.white_balance_sample_area[3] * viewer.height,
+                ),
+                QRect(
+                    editor.post_white_balance_sample_area[0] * viewer.width,
+                    editor.post_white_balance_sample_area[1] * viewer.height,
+                    editor.post_white_balance_sample_area[2] * viewer.width,
+                    editor.post_white_balance_sample_area[3] * viewer.height,
+                )
+                ]
 
             viewer.update()
             props.histogram.update()
@@ -344,6 +386,32 @@ class MainWindow(QWidget):
 
         set_horizontal_wb_area(horizontal_wb_range.value())
         horizontal_wb_range.valueChanged.connect(set_horizontal_wb_area)
+
+        def set_vertical_post_wb_area(values):
+            current = editor.post_white_balance_sample_area
+            editor.post_white_balance_sample_area = (
+                current[0],
+                (99 - values[1]) / 100,
+                current[2],
+                (values[1] - values[0]) / 100)
+
+            update_viewer()
+
+        set_vertical_post_wb_area(vertical_post_wb_range.value())
+        vertical_post_wb_range.valueChanged.connect(set_vertical_post_wb_area)
+
+        def set_horizontal_post_wb_area(values):
+            current = editor.post_white_balance_sample_area
+            editor.post_white_balance_sample_area = (
+                values[0] / 100,
+                current[1],
+                (values[1] - values[0]) / 100,
+                current[3])
+
+            update_viewer()
+
+        set_horizontal_post_wb_area(horizontal_post_wb_range.value())
+        horizontal_post_wb_range.valueChanged.connect(set_horizontal_post_wb_area)
 
         def set_shadows(value):
             editor.shadows = value
@@ -400,8 +468,10 @@ class MainWindow(QWidget):
         props.gamma.slider.valueChanged.connect(set_gamma)
 
         viewer_layout.addWidget(vertical_wb_range, 0, 0)
-        viewer_layout.addWidget(viewer, 0, 1)
-        viewer_layout.addWidget(horizontal_wb_range, 1, 1)
+        viewer_layout.addWidget(vertical_post_wb_range, 0, 1)
+        viewer_layout.addWidget(viewer, 0, 2)
+        viewer_layout.addWidget(horizontal_post_wb_range, 1, 2)
+        viewer_layout.addWidget(horizontal_wb_range, 2, 2)
         viewer_group.setLayout(viewer_layout)
 
         main_layout = QGridLayout()
