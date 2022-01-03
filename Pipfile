@@ -8,10 +8,14 @@ rawpy = "*"
 numpy = "*"
 jupyter = "*"
 matplotlib = "*"
-pyside6 = "*"
 superqt = "*"
+pyside2 = "*"
+"qt.py" = "*"
+nodegraphqt = {git = "https://github.com/jchanvfx/NodeGraphQt.git"}
+scikit-image = {extras = ["optional"], version = "*"}
 
 [dev-packages]
+mypy = "*"
 
 [requires]
 python_version = "3.9"
