@@ -1,13 +1,24 @@
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple, Union
 from NodeGraphQt import BaseNode, Port
+from PySide2.QtCore import Signal
+from numpy.lib.utils import source
 
 import numpy.typing as npt
 import numpy as np
 import rawpy
 
-from ..processing.spells import fit_image, invert
+from ..processing.spells import ImageFit, ImageLike, fit_image, invert, white_balance
 
-from .Widgets import CropWidget, EstimateColorBalanceWidget, FileOutputWidget, GammaWidget, InvertWidget, PerChannelAverageWidget, RawFileInputWidget, TwoPointColorBalanceWidget, ViewerOutputWidget
+from .Widgets import ColorBalanceWidget, \
+    CropWidget, \
+    EstimateColorBalanceWidget, \
+    FileOutputWidget, \
+    GammaWidget, ImageRenderer, \
+    InvertWidget, \
+    PerChannelAverageWidget, \
+    RawFileInputWidget, \
+    TwoPointColorBalanceWidget, \
+    ViewerOutputWidget
 
 ORG_IDENTIFIER = "engineering.brotzeit"
 
@@ -16,47 +27,267 @@ def request_data(port):
     source = port.connected_ports()[0]
     return source.request_data()
 
+class ROI:
+    def __init__(self,
+        position: Tuple[float, float] = [0, 0],
+        size: Tuple[float, float] = [1, 1],
+        resolution: Tuple[int, int] = [0, 0]) -> None:
+        """
+        Constructs a region of interest of `size` originating at `position`
+
+        Parameters
+        ---
+        position
+            `[x, y]` position in unit-coordinates `[0..1]`
+        size
+            `[width, height]` in unit-coordinates `(0..1]`
+        resolution
+            `[width, height]` in pixels - the special value `0` indicates that
+            the original resolution is requested
+        """
+        self.position = position
+        self.size = size
+        self.resolution = resolution
+
+    def of(self, img: ImageLike):
+        """
+        Return the chunk of `img` that is defined by this ROI
+        """
+        return get_roi(img, self)
+
+    def __eq__(self, other):
+        """
+        Two ROI are equal if they describe the same area and resolution
+        """
+        if isinstance(other, ROI):
+            return self.position == other.position \
+                and self.size == other.size \
+                and self.resolution == other.resolution
+        return NotImplemented
+
+    def __hash__(self):
+        """Overrides the default implementation"""
+        return hash(tuple(sorted(self.__dict__.items())))
+
+    def __repr__(self) -> str:
+        return f"ROI({self.position}, {self.size}, {self.resolution})"
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+def get_roi(img: ImageLike, roi: ROI) -> ImageLike:
+    """
+    Return the chunk of `img` that is defined by `roi`
+    """
+    x, y = np.floor(img.shape[:1] * np.array(roi.position)).astype(int)
+    w, h = np.floor(img.shape[:1] * np.array(roi.size)).astype(int)
+
+    sub_img = img[x:x+w, y:y+h]
+
+    # TODO: scale to resolution
+    sub_img = fit_image(sub_img, roi.resolution)
+
+    return sub_img
+
+class ImageCache:
+    SubscriberCallback = Callable[[ImageLike], None]
+    ProviderCallback = Callable[[ROI], ImageLike]
+
+    _subscribers: dict[ROI, set[SubscriberCallback]] = {}
+    _cache: dict[ROI, ImageLike] = {}
+
+    def __init__(self, provider: ProviderCallback) -> None:
+        self._provider = provider
+
+    def subscribe(self, roi: ROI, callback: SubscriberCallback):
+        if roi not in self._subscribers:
+            self._subscribers[roi] = set()
+
+        self._subscribers[roi].add(callback)
+
+        callback(self._get_cache(roi))
+
+    def unsubscribe(self, callback: SubscriberCallback):
+        """
+        Remove the subscription of the callback from the first ROI it is
+        subscribed to
+        """
+        # TODO: find a better way to figure out where the subscriber is
+        for roi in self._subscribers:
+            subscr_set = self._subscribers[roi]
+            if callback in subscr_set:
+                subscr_set.remove(callback)
+                # if the ROI has no subscribers lef, we can remove it from
+                # the cache
+                if len(subscr_set) == 0:
+                    del self._subscribers[roi]
+                    del self._cache[roi]
+                return
+
+    def invalidate_cache(self):
+        """
+        Clear cache, request fresh values from provider and update all
+        subscribers with these
+        """
+        self._cache = {}
+        for roi in self._subscribers:
+            # compute new image and save it in cache
+            img = self._get_cache(roi)
+            # call every subscriber with the new image
+            for subscr in self._subscribers[roi]:
+                subscr(img)
+
+    def _get_cache(self, roi: ROI):
+        """
+        Get value for ROI from cache or compute it if it isn't there
+        """
+        if ROI not in self._cache:
+            self._cache[roi] = self._provider(roi)
+
+        return self._cache[roi]
+
+
+
+class ReactiveProperty:
+    def __init__(self,
+        name: str,
+        ui_getter: Callable,
+        ui_setter: Callable,
+        ui_updated_signal: Signal,
+        signal_handler: Callable) -> None:
+        self.name              = name
+        self.ui_getter         = ui_getter
+        self.ui_setter         = ui_setter
+        self.ui_updated_signal = ui_updated_signal
+        self.signal_handler    = signal_handler
+
+class InputHandler:
+    def __init__(self, roi: ROI, handler: ImageCache.SubscriberCallback) -> None:
+        self.roi = roi
+        self.handler = handler
+
 class NeoAlchemistNode(BaseNode):
     __identifier__ = ORG_IDENTIFIER
+    _reactive_properties: dict[str, ReactiveProperty] = {}
+    _input_handlers: dict[str, InputHandler] = {}
+    # TODO: generalise away from ImageCache
+    out_value: dict[str, ImageCache] = {}
+
     @property
     def properties_widget(self):
         return self._properties_widget
 
-    def on_input_connected(self, source, target):
-            self.run()
+    def define_output(self, name, cache):
+        self.add_output(name)
+        self.out_value[name] = cache
 
-    def on_input_disconnected(self, source, target):
-        self.run()
+    def define_input(self, name, handler: ImageCache.SubscriberCallback, roi = ROI()):
+        self.add_input(name)
+        self._input_handlers[name] = InputHandler(roi, handler)
+
+    def in_value(self, name):
+        """
+        Get the value from the node connected to the input called `name`
+        """
+        source_port: Port = self.input(name).connected_ports[0]
+        source_cache: ImageCache = source_port.node().out_value[source_port.name()]
+        return source_cache
+
+    def update_input_roi(self, name, roi: ROI):
+        source_cache = self.in_value(name)
+
+        source_cache.unsubscribe(self._input_handlers[name].handler)
+        self._input_handlers[name].roi = roi
+        source_cache.subscribe(roi, self._input_handlers[name].handler)
+
+    def input_data(self, input_name):
+        return request_data(self.input(input_name))
+
+    def reactive_property(self,
+        name: str,
+        initial_value,
+        ui_getter: Callable,
+        ui_setter: Callable,
+        ui_updated_signal: Signal):
+        """
+        Defines a node property whose value is linked with that of a UI element
+
+        The type of the property must match the UI element's getter return type
+        and setter argument type.
+        """
+        def signal_handler(*args):
+            self.set_property(name, ui_getter())
+            # TODO: turn this into output ImageCache update
+            self.run()
+            self.update_stream()
+
+        ui_updated_signal.connect(signal_handler)
+
+        self._reactive_properties[name] = ReactiveProperty(
+            name,
+            ui_getter,
+            ui_setter,
+            ui_updated_signal,
+            signal_handler)
+
+        self.create_property(name, initial_value)
+
+    def set_property(self, name, value):
+        print(f"Setting {name} to {value}")
+        # if this is a reactive property, also set it on the UI widget
+        if name in self._reactive_properties:
+            prop = self._reactive_properties[name]
+            prop.ui_updated_signal.disconnect(prop.signal_handler)
+            prop.ui_setter(value)
+            prop.ui_updated_signal.connect(prop.signal_handler)
+
+        return super().set_property(name, value)
+
+    def on_input_connected(self, in_port: Port, out_port: Port):
+        cache: ImageCache = out_port.node().out_value[out_port.name()]
+        input_handler = self._input_handlers[in_port.name()]
+        cache.subscribe(input_handler.roi, input_handler.handler)
+        return super().on_input_connected(in_port, out_port)
+
+    def on_input_disconnected(self, in_port: Port, out_port: Port):
+        cache: ImageCache = out_port.node().out_value[out_port.name()]
+        cache.unsubscribe(self._input_handlers[in_port.name()].handler)
+        return super().on_input_disconnected(in_port, out_port)
 
 class RawFileInputNode(NeoAlchemistNode):
     NODE_NAME = "Raw File Input"
 
-    _cache: Tuple[str, Optional[npt.ArrayLike]] = ("", None)
+    _raw_data: rawpy.RawPy
+    _pixels: ImageLike
 
     def __init__(self):
         super().__init__()
 
-        self.add_output("Image")
-        self.outputs()["Image"].request_data = self._handle_request_image_data
-        self.create_property("filename", "")
+        self.define_output("Image", ImageCache(self._handle_request_image_data))
 
         self._properties_widget = RawFileInputWidget(self.NODE_NAME)
-        self._properties_widget.filename_changed.connect(self.set_filename)
+        self.reactive_property("filename", "",
+            self._properties_widget.get_filename,
+            self._properties_widget.set_filename,
+            self._properties_widget.filename_changed)
 
-    def set_filename(self, filename):
-        self.set_property("filename", filename)
-        self._refresh_cache()
+    def _handle_request_image_data(self, roi: ROI):
+        print(f"Returning pixels for {roi}")
+        return roi.of(self._pixels)
 
-    def _handle_request_image_data(self):
-        return self._cache[1]
+    def set_property(self, name, value):
+        if name == "filename":
+            print(f"reading data from {value}")
+            self._raw_data = rawpy.imread(value)
+            self._postprocess_raw_data()
+            self.out_value["Image"].invalidate_cache()
 
-    def _refresh_cache(self):
-        if (self._cache[0] == self.filename and self._cache[1] is not None):
-            return
+        return super().set_property(name, value)
 
-        raw_data = rawpy.imread(self.filename)
-        data = np.array(raw_data.postprocess(
-            half_size=True, # TODO: make this conditional on user input
+    def _postprocess_raw_data(self):
+        self._pixels = np.array(self._raw_data.postprocess(
+            # TODO: make this conditional on user input or read full size lazily
+            half_size=True,
             output_color=rawpy.ColorSpace.raw,
             output_bps=16,
             gamma=(1, 1),
@@ -64,13 +295,9 @@ class RawFileInputNode(NeoAlchemistNode):
             no_auto_bright=True
             ), dtype=np.float32) / np.iinfo(np.uint16).max
 
-        self._cache = [self.filename, data]
-
-        self.update_stream()
-
     @property
     def filename(self) -> str:
-        return self.get_property("fielname")
+        return self.get_property("filename")
 
 class FileOutputNode(NeoAlchemistNode):
     NODE_NAME = "File Output"
@@ -82,7 +309,7 @@ class FileOutputNode(NeoAlchemistNode):
 
         self._properties_widget = FileOutputWidget(self.NODE_NAME)
 
-def curry_ViewerOutputNode(viewer):
+def curry_ViewerOutputNode(viewer: ImageRenderer):
     """
     Define a `ViewerOutputNode` for the given `viewer`
     """
@@ -94,56 +321,44 @@ def curry_ViewerOutputNode(viewer):
         def __init__(self):
             super().__init__()
 
-            self.add_input("Image")
-            self.create_property("resolution", (0, 0))
 
             self._properties_widget = ViewerOutputWidget(self.NODE_NAME)
-            self._properties_widget.width_input.valueChanged.connect(self._handle_input_change)
-            self._properties_widget.width_input.setValue(512)
-            self._properties_widget.height_input.valueChanged.connect(self._handle_input_change)
-            self._properties_widget.height_input.setValue(512)
 
-            self.run()
+            self.reactive_property("viewer_width", 512,
+                self._properties_widget.width_input.value,
+                self._properties_widget.width_input.setValue,
+                self._properties_widget.width_input.editingFinished)
 
-        def run(self):
-            self._update_cache()
+            self.reactive_property("viewer_height", 512,
+                self._properties_widget.height_input.value,
+                self._properties_widget.height_input.setValue,
+                self._properties_widget.height_input.editingFinished)
 
-        def _handle_input_change(self):
-            self.set_property("resolution",
-                (self._properties_widget.width_input.value(),
-                self._properties_widget.height_input.value())
-            )
-            self._update_cache()
-
-        def _update_viewer(self):
-            self._viewer.set_image(self._cache[1])
-
-        def _update_cache(self):
-            input_port = self.get_input("Image")
-            if len(input_port.connected_ports()) == 0:
-                # Nothing connected, set image to zero, update viewer and bail
-                # TODO: set image to something saying "INPUT MISSING"
-                self._cache = (
-                    f"zeros{self.resolution}",
-                    np.zeros((*self.resolution, 3), dtype=np.float32)
-                    )
-                self._update_viewer()
-                return
-
-            source_port: Port = input_port.connected_ports()[0]
-            source_identifier = source_port.node().id + source_port.name() + str(self.resolution)
-
-            self._cache = (
-                source_identifier,
-                fit_image(request_data(input_port), self.resolution)
+            self.define_input("Image",
+                self._handle_input_change,
+                ROI((0, 0), (1, 1), self.resolution)
                 )
 
-            # show new image in viewer
-            self._update_viewer()
+        def _handle_input_change(self, img: ImageLike):
+            self._update_viewer(img)
+
+        def _update_viewer(self, img: Optional[ImageLike]):
+            if img is None:
+                # Nothing to show, set image to zero, update viewer and bail
+                # TODO: set image to something saying "INPUT MISSING"
+                self._viewer.set_image(
+                    np.zeros((*self.resolution, 3), dtype=np.float32)
+                    )
+                return
+
+            self._viewer.set_image(img)
 
         @property
         def resolution(self):
-            return self.get_property("resolution")
+            return (
+                self.get_property("viewer_width"),
+                self.get_property("viewer_height")
+            )
 
     return ViewerOutputNode
 
@@ -183,6 +398,46 @@ class CropNode(NeoAlchemistNode):
         x2 = int((self.crop_window[0] + self.crop_window[2]) * w)
 
         self._cache = in_img[y1:y2, x1:x2]
+
+    def _handle_request_image_data(self):
+        return self._cache
+
+class GreyBalanceNode(NeoAlchemistNode):
+    NODE_NAME = "Grey Balance"
+    def __init__(self):
+        super().__init__()
+
+        self.add_input("Image")
+        image_out = self.add_output("Image")
+        image_out.request_data = self._handle_request_image_data
+
+        self._properties_widget = ColorBalanceWidget(self.NODE_NAME)
+
+        self.reactive_property("red", 1,
+            self._properties_widget.red.value,
+            self._properties_widget.red.setValue,
+            self._properties_widget.red.valueChanged)
+        self.reactive_property("green", 1,
+            self._properties_widget.green.value,
+            self._properties_widget.green.setValue,
+            self._properties_widget.green.valueChanged)
+        self.reactive_property("blue", 1,
+            self._properties_widget.blue.value,
+            self._properties_widget.blue.setValue,
+            self._properties_widget.blue.valueChanged)
+
+    def run(self):
+        in_img = request_data(self.get_input("Image"))
+        self._cache = white_balance(in_img, self.grey_balance)
+        self.update_stream()
+
+    @property
+    def grey_balance(self):
+        return (
+            self.get_property("red"),
+            self.get_property("green"),
+            self.get_property("blue")
+        )
 
     def _handle_request_image_data(self):
         return self._cache

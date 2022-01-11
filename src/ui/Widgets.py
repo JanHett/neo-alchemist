@@ -8,6 +8,8 @@ from superqt import QRangeSlider, QDoubleSlider
 import numpy as np
 import numpy.typing as npt
 
+from ..processing.spells import ImageLike
+
 class LabelledSlider(QWidget):
     def __init__(self, label: str, parent: Optional[QWidget] = None, f: Qt.WindowFlags = Qt.WindowFlags()) -> None:
         super().__init__(parent=parent, f=f)
@@ -82,6 +84,13 @@ class FileIOWidget(QGroupBox):
 
     def __handle_file_picker_click(self):
         self._handle_file_picker_click()
+        self.filename_changed.emit(self.filename)
+
+    def get_filename(self):
+        return self.filename
+
+    def set_filename(self, value):
+        self.filename = value
         self.filename_changed.emit(self.filename)
 
 class FileInputWidget(FileIOWidget):
@@ -342,6 +351,6 @@ class ImageRenderer(QOpenGLWidget):
     def overlay(self, overlay: list[QRect]):
         self._overlay = overlay
 
-    def set_image(self, image: npt.ArrayLike):
+    def set_image(self, image: ImageLike):
         self.image = image
         self.setFixedSize(self.image.shape[1], self.image.shape[0])

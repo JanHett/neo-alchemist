@@ -23,6 +23,7 @@ from .Nodes import \
     FileOutputNode, \
     curry_ViewerOutputNode, \
     CropNode, \
+    GreyBalanceNode, \
     TwoPointColorBalanceNode, \
     InvertNode, \
     GammaNode, \
@@ -375,6 +376,7 @@ class MainWindow(QMainWindow):
             FileOutputNode,
             curry_ViewerOutputNode(viewer),
             CropNode,
+            GreyBalanceNode,
             TwoPointColorBalanceNode,
             InvertNode,
             GammaNode,
