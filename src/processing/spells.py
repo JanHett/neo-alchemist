@@ -11,6 +11,7 @@ from skimage.transform import resize
 ####################################################
 
 ImageLike = npt.ArrayLike
+Color = Tuple[float, float, float]
 
 ####################################################
 # SMOOTH STEPPING FUNCTIONS

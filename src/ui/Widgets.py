@@ -89,13 +89,18 @@ class FileIOWidget(QGroupBox):
     def get_filename(self):
         return self.filename
 
+    @property
+    def filename(self):
+        return self._filename
+
     def set_filename(self, value):
-        self.filename = value
+        self._filename = value
         self.filename_changed.emit(self.filename)
+
 
 class FileInputWidget(FileIOWidget):
     def _handle_file_picker_click(self):
-        self.filename = QFileDialog.getOpenFileName(self,
+        self._filename = QFileDialog.getOpenFileName(self,
             "Open Image", "/", self.name_filter)[0]
 
         print(f"filename: '{self.filename}'")
@@ -105,7 +110,7 @@ class RawFileInputWidget(FileInputWidget):
 
 class FileOutputWidget(FileIOWidget):
     def _handle_file_picker_click(self):
-        self.filename = QFileDialog.getSaveFileName(self,
+        self._filename = QFileDialog.getSaveFileName(self,
             "Save File", "/", self.name_filter)[0]
 
 class ColorBalanceWidget(QGroupBox):
@@ -274,11 +279,15 @@ class ViewerOutputWidget(QGroupBox):
         self._layout = QVBoxLayout(self)
         self._layout.setAlignment(Qt.AlignTop)
 
+        self.width_label = QLabel("Width")
+        self._layout.addWidget(self.width_label)
         self.width_input = QSpinBox(self)
         self.width_input.setMinimum(1)
         self.width_input.setMaximum(16777216)
         self._layout.addWidget(self.width_input)
 
+        self.height_label = QLabel("Height")
+        self._layout.addWidget(self.height_label)
         self.height_input = QSpinBox(self)
         self.height_input.setMinimum(1)
         self.height_input.setMaximum(16777216)

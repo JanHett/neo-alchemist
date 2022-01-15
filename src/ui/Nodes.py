@@ -146,8 +146,6 @@ class ImageCache:
 
         return self._cache[roi]
 
-
-
 class ReactiveProperty:
     def __init__(self,
         name: str,
@@ -178,12 +176,14 @@ class NeoAlchemistNode(BaseNode):
         return self._properties_widget
 
     def define_output(self, name, cache):
-        self.add_output(name)
+        out = self.add_output(name)
         self.out_value[name] = cache
+        return out
 
     def define_input(self, name, handler: ImageCache.SubscriberCallback, roi = ROI()):
-        self.add_input(name)
+        input = self.add_input(name)
         self._input_handlers[name] = InputHandler(roi, handler)
+        return input
 
     def in_value(self, name):
         """
@@ -216,10 +216,9 @@ class NeoAlchemistNode(BaseNode):
         and setter argument type.
         """
         def signal_handler(*args):
-            self.set_property(name, ui_getter())
-            # TODO: turn this into output ImageCache update
-            self.run()
-            self.update_stream()
+            # this change is coming from the UI, no need to go the complicated
+            # way for setting the property
+            self._set_property(name, ui_getter())
 
         ui_updated_signal.connect(signal_handler)
 
@@ -230,9 +229,26 @@ class NeoAlchemistNode(BaseNode):
             ui_updated_signal,
             signal_handler)
 
+        ui_setter(initial_value)
         self.create_property(name, initial_value)
 
+    def _set_property(self, name, value):
+        """
+        Set property `name` to `value` without updating the UI elements
+        associated with reactive properties
+        """
+        rv = super().set_property(name, value)
+
+        # update ImageCache for all outputs
+        for out in self.out_value:
+            self.out_value[out].invalidate_cache()
+
+        return rv
+
     def set_property(self, name, value):
+        """
+        Set property `name` to `value`
+        """
         print(f"Setting {name} to {value}")
         # if this is a reactive property, also set it on the UI widget
         if name in self._reactive_properties:
@@ -241,7 +257,16 @@ class NeoAlchemistNode(BaseNode):
             prop.ui_setter(value)
             prop.ui_updated_signal.connect(prop.signal_handler)
 
-        return super().set_property(name, value)
+        return self._set_property(name, value)
+
+    def update_roi(self, in_port: Port, roi: ROI):
+        out_port: Port = in_port.connected_ports()[0]
+        cache: ImageCache = out_port.node().out_value[out_port.name()]
+        input_handler = self._input_handlers[in_port.name()]
+        cache.unsubscribe(input_handler.handler)
+        input_handler.roi = roi
+        cache.subscribe(input_handler.roi, input_handler.handler)
+
 
     def on_input_connected(self, in_port: Port, out_port: Port):
         cache: ImageCache = out_port.node().out_value[out_port.name()]
@@ -275,14 +300,13 @@ class RawFileInputNode(NeoAlchemistNode):
         print(f"Returning pixels for {roi}")
         return roi.of(self._pixels)
 
-    def set_property(self, name, value):
+    def _set_property(self, name, value):
         if name == "filename":
             print(f"reading data from {value}")
             self._raw_data = rawpy.imread(value)
             self._postprocess_raw_data()
-            self.out_value["Image"].invalidate_cache()
 
-        return super().set_property(name, value)
+        return super()._set_property(name, value)
 
     def _postprocess_raw_data(self):
         self._pixels = np.array(self._raw_data.postprocess(
@@ -334,10 +358,19 @@ def curry_ViewerOutputNode(viewer: ImageRenderer):
                 self._properties_widget.height_input.setValue,
                 self._properties_widget.height_input.editingFinished)
 
-            self.define_input("Image",
+            self._in_image = self.define_input("Image",
                 self._handle_input_change,
                 ROI((0, 0), (1, 1), self.resolution)
                 )
+
+        def _set_property(self, name, value):
+            rv = super()._set_property(name, value)
+            if name == "viewer_width" or name == "viewer_height":
+                self.update_roi(
+                    self._in_image,
+                    ROI((0, 0), (1, 1), self.resolution)
+                )
+            return rv
 
         def _handle_input_change(self, img: ImageLike):
             self._update_viewer(img)
@@ -347,11 +380,12 @@ def curry_ViewerOutputNode(viewer: ImageRenderer):
                 # Nothing to show, set image to zero, update viewer and bail
                 # TODO: set image to something saying "INPUT MISSING"
                 self._viewer.set_image(
-                    np.zeros((*self.resolution, 3), dtype=np.float32)
+                    np.zeros((self.resolution[1], self.resolution[0], 3), dtype=np.float32)
                     )
                 return
 
             self._viewer.set_image(img)
+            self._viewer.update()
 
         @property
         def resolution(self):
@@ -369,8 +403,8 @@ class CropNode(NeoAlchemistNode):
         super().__init__()
 
         self.add_input("Image")
-        image_out = self.add_output("Image")
-        image_out.request_data = self._handle_request_image_data
+        self.define_input("Image", self._handle_input_change, ROI((0, 0), (1, 1)))
+        self.define_output("Image", ImageCache(self._handle_request_image_data))
 
         self._properties_widget = CropWidget(self.NODE_NAME)
 
@@ -463,7 +497,7 @@ class InvertNode(NeoAlchemistNode):
     def __init__(self):
         super().__init__()
 
-        self._in_img_port  = self.add_input("Image")
+        self.define_input("Image", self._handle_input_change, ROI((0, 0), (1, 1)))
         self._out_img_port = self.add_output("Image")
         self._out_img_port.request_data = self._handle_request_image_data
 
