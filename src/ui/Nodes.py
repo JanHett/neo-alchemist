@@ -16,7 +16,7 @@ from .Widgets import ColorBalanceWidget, \
     GammaWidget, ImageRenderer, \
     InvertWidget, \
     PerChannelAverageWidget, \
-    RawFileInputWidget, \
+    RawFileInputWidget, SolidWidget, \
     TwoPointColorBalanceWidget, \
     ViewerOutputWidget
 
@@ -84,7 +84,7 @@ def get_roi(img: ImageLike, roi: ROI) -> ImageLike:
 
     sub_img = img[x:x+w, y:y+h]
 
-    # TODO: scale to resolution
+    # scale to resolution
     sub_img = fit_image(sub_img, roi.resolution)
 
     return sub_img
@@ -117,7 +117,7 @@ class ImageCache:
             subscr_set = self._subscribers[roi]
             if callback in subscr_set:
                 subscr_set.remove(callback)
-                # if the ROI has no subscribers lef, we can remove it from
+                # if the ROI has no subscribers left, we can remove it from
                 # the cache
                 if len(subscr_set) == 0:
                     del self._subscribers[roi]
@@ -278,6 +278,25 @@ class NeoAlchemistNode(BaseNode):
         cache: ImageCache = out_port.node().out_value[out_port.name()]
         cache.unsubscribe(self._input_handlers[in_port.name()].handler)
         return super().on_input_disconnected(in_port, out_port)
+
+class SolidNode(NeoAlchemistNode):
+    NODE_NAME = "Solid"
+
+    def __init__(self):
+        super().__init__()
+
+        self.define_output("Image", ImageCache(self._handle_request_image_data))
+
+        self._properties_widget = SolidWidget(self.NODE_NAME)
+        self.reactive_property("output_color", self._properties_widget.get_color(),
+            self._properties_widget.get_color,
+            self._properties_widget.set_color,
+            self._properties_widget.color_changed)
+
+    def _handle_request_image_data(self, roi: ROI):
+        print(f"Returning pixels for {roi}")
+        return np.full((roi.resolution[1], roi.resolution[0], 3), self._properties_widget.get_color())
+
 
 class RawFileInputNode(NeoAlchemistNode):
     NODE_NAME = "Raw File Input"

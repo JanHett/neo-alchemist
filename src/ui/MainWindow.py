@@ -19,6 +19,7 @@ from ..processing.spells import gamma, linear_contrast, highlow_balance, invert,
 from ..controllers.AdjustmentControllers import FileInputController, FileOutputController, InvertController, PipelineController, WhiteBalanceController
 from .Widgets import LabelledSlider, ColorBalanceWidget, ImageRenderer
 from .Nodes import \
+    SolidNode, \
     RawFileInputNode, \
     FileOutputNode, \
     curry_ViewerOutputNode, \
@@ -372,6 +373,7 @@ class MainWindow(QMainWindow):
 
         self._nodes = [
             # BackdropNode,
+            SolidNode,
             RawFileInputNode,
             FileOutputNode,
             curry_ViewerOutputNode(viewer),

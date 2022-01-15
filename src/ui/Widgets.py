@@ -8,7 +8,7 @@ from superqt import QRangeSlider, QDoubleSlider
 import numpy as np
 import numpy.typing as npt
 
-from ..processing.spells import ImageLike
+from ..processing.spells import ImageLike, Color
 
 class LabelledSlider(QWidget):
     def __init__(self, label: str, parent: Optional[QWidget] = None, f: Qt.WindowFlags = Qt.WindowFlags()) -> None:
@@ -55,13 +55,63 @@ class LabelledSlider(QWidget):
     def value(self) -> float:
         return self.slider.value()
 
+class SolidWidget(QGroupBox):
+
+    color_changed = Signal(tuple)
+
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        minimum = 0
+        maximum = 1
+
+        self.red = LabelledSlider("Red", self)
+        self.red.setMinimum(minimum)
+        self.red.setMaximum(maximum)
+        self.red.setValue(1)
+        self.red.valueChanged.connect(self._handle_value_changed)
+        self.green = LabelledSlider("Green", self)
+        self.green.setMinimum(minimum)
+        self.green.setMaximum(maximum)
+        self.green.setValue(1)
+        self.green.valueChanged.connect(self._handle_value_changed)
+        self.blue = LabelledSlider("Blue", self)
+        self.blue.setMinimum(minimum)
+        self.blue.setMaximum(maximum)
+        self.blue.setValue(1)
+        self.blue.valueChanged.connect(self._handle_value_changed)
+
+        self._layout.addWidget(self.red)
+        self._layout.addWidget(self.green)
+        self._layout.addWidget(self.blue)
+
+        self.setLayout(self._layout)
+
+    def get_color(self) -> Color:
+        return (
+            self.red.value(), 
+            self.green.value(), 
+            self.blue.value()
+        )
+
+    def set_color(self, color: Color):
+        self.red.setValue(color[0])
+        self.green.setValue(color[1])
+        self.blue.setValue(color[2])
+
+    def _handle_value_changed(self, _):
+        self.color_changed.emit(self.get_color())
+
 class FileIOWidget(QGroupBox):
     """
     Widget providing a file picker
     """
 
     name_filter = "Any File (*)"
-    filename = ""
+    _filename = ""
 
     filename_changed = Signal(str)
 
