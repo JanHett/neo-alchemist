@@ -29,9 +29,9 @@ def request_data(port):
 
 class ROI:
     def __init__(self,
-        position: Tuple[float, float] = [0, 0],
-        size: Tuple[float, float] = [1, 1],
-        resolution: Tuple[int, int] = [0, 0]) -> None:
+        position: Tuple[float, float] = (0, 0),
+        size: Tuple[float, float] = (1, 1),
+        resolution: Tuple[int, int] = (0, 0)) -> None:
         """
         Constructs a region of interest of `size` originating at `position`
 
@@ -90,39 +90,28 @@ def get_roi(img: ImageLike, roi: ROI) -> ImageLike:
     return sub_img
 
 class ImageCache:
-    SubscriberCallback = Callable[[ImageLike], None]
+    SubscriberCallback = Callable[[], None]
     ProviderCallback = Callable[[ROI], ImageLike]
-
-    _subscribers: dict[ROI, set[SubscriberCallback]] = {}
-    _cache: dict[ROI, ImageLike] = {}
 
     def __init__(self, provider: ProviderCallback) -> None:
         self._provider = provider
+        self._subscribers: set[ImageCache.SubscriberCallback] = set()
+        self._cache: dict[ROI, ImageLike] = {}
 
-    def subscribe(self, roi: ROI, callback: SubscriberCallback):
-        if roi not in self._subscribers:
-            self._subscribers[roi] = set()
+    def subscribe(self, callback: SubscriberCallback):
+        self._subscribers.add(callback)
 
-        self._subscribers[roi].add(callback)
-
-        callback(self._get_cache(roi))
+        callback()
 
     def unsubscribe(self, callback: SubscriberCallback):
         """
-        Remove the subscription of the callback from the first ROI it is
-        subscribed to
+        Remove the subscription of the callback
         """
-        # TODO: find a better way to figure out where the subscriber is
-        for roi in self._subscribers:
-            subscr_set = self._subscribers[roi]
-            if callback in subscr_set:
-                subscr_set.remove(callback)
-                # if the ROI has no subscribers left, we can remove it from
-                # the cache
-                if len(subscr_set) == 0:
-                    del self._subscribers[roi]
-                    del self._cache[roi]
-                return
+        if callback in self._subscribers:
+            self._subscribers.remove(callback)
+
+    def get(self, roi: ROI) -> ImageLike:
+        return self._get_cache(roi)
 
     def invalidate_cache(self):
         """
@@ -130,12 +119,9 @@ class ImageCache:
         subscribers with these
         """
         self._cache = {}
-        for roi in self._subscribers:
-            # compute new image and save it in cache
-            img = self._get_cache(roi)
-            # call every subscriber with the new image
-            for subscr in self._subscribers[roi]:
-                subscr(img)
+        # call every subscriber to notify them of the new image
+        for subscr in self._subscribers:
+            subscr()
 
     def _get_cache(self, roi: ROI):
         """
@@ -160,48 +146,46 @@ class ReactiveProperty:
         self.signal_handler    = signal_handler
 
 class InputHandler:
-    def __init__(self, roi: ROI, handler: ImageCache.SubscriberCallback) -> None:
-        self.roi = roi
+    def __init__(self, handler: ImageCache.SubscriberCallback) -> None:
         self.handler = handler
 
 class NeoAlchemistNode(BaseNode):
     __identifier__ = ORG_IDENTIFIER
-    _reactive_properties: dict[str, ReactiveProperty] = {}
-    _input_handlers: dict[str, InputHandler] = {}
-    # TODO: generalise away from ImageCache
-    out_value: dict[str, ImageCache] = {}
+
+    def __init__(self):
+        super().__init__()
+
+        self._reactive_properties: dict[str, ReactiveProperty] = {}
+        self._input_handlers: dict[str, InputHandler] = {}
+        # TODO: generalise away from ImageCache
+        self.out_value: dict[str, ImageCache] = {}
 
     @property
     def properties_widget(self):
         return self._properties_widget
 
-    def define_output(self, name, cache):
+    def define_output(self, name: str, cache: ImageCache) -> Port:
         out = self.add_output(name)
         self.out_value[name] = cache
         return out
 
-    def define_input(self, name, handler: ImageCache.SubscriberCallback, roi = ROI()):
+    def define_input(self,
+        name: str,
+        handler: ImageCache.SubscriberCallback) -> Port:
         input = self.add_input(name)
-        self._input_handlers[name] = InputHandler(roi, handler)
+        self._input_handlers[name] = InputHandler(handler)
         return input
 
     def in_value(self, name):
         """
         Get the value from the node connected to the input called `name`
         """
-        source_port: Port = self.input(name).connected_ports[0]
+        source_port: Port = self.get_input(name).connected_ports()[0]
         source_cache: ImageCache = source_port.node().out_value[source_port.name()]
         return source_cache
 
-    def update_input_roi(self, name, roi: ROI):
-        source_cache = self.in_value(name)
-
-        source_cache.unsubscribe(self._input_handlers[name].handler)
-        self._input_handlers[name].roi = roi
-        source_cache.subscribe(roi, self._input_handlers[name].handler)
-
     def input_data(self, input_name):
-        return request_data(self.input(input_name))
+        return request_data(self.get_input(input_name))
 
     def reactive_property(self,
         name: str,
@@ -259,19 +243,10 @@ class NeoAlchemistNode(BaseNode):
 
         return self._set_property(name, value)
 
-    def update_roi(self, in_port: Port, roi: ROI):
-        out_port: Port = in_port.connected_ports()[0]
-        cache: ImageCache = out_port.node().out_value[out_port.name()]
-        input_handler = self._input_handlers[in_port.name()]
-        cache.unsubscribe(input_handler.handler)
-        input_handler.roi = roi
-        cache.subscribe(input_handler.roi, input_handler.handler)
-
-
     def on_input_connected(self, in_port: Port, out_port: Port):
         cache: ImageCache = out_port.node().out_value[out_port.name()]
         input_handler = self._input_handlers[in_port.name()]
-        cache.subscribe(input_handler.roi, input_handler.handler)
+        cache.subscribe(input_handler.handler)
         return super().on_input_connected(in_port, out_port)
 
     def on_input_disconnected(self, in_port: Port, out_port: Port):
@@ -294,8 +269,9 @@ class SolidNode(NeoAlchemistNode):
             self._properties_widget.color_changed)
 
     def _handle_request_image_data(self, roi: ROI):
-        print(f"Returning pixels for {roi}")
-        return np.full((roi.resolution[1], roi.resolution[0], 3), self._properties_widget.get_color())
+        print(f"Solid:: Returning pixels for {roi}")
+        shape = (roi.resolution[1], roi.resolution[0], 3) if roi.resolution[0] > 0 and roi.resolution[1] > 0 else (1, 1, 3)
+        return np.full(shape, self._properties_widget.get_color())
 
 
 class RawFileInputNode(NeoAlchemistNode):
@@ -378,8 +354,7 @@ def curry_ViewerOutputNode(viewer: ImageRenderer):
                 self._properties_widget.height_input.editingFinished)
 
             self._in_image = self.define_input("Image",
-                self._handle_input_change,
-                ROI((0, 0), (1, 1), self.resolution)
+                self._handle_input_change
                 )
 
         def _set_property(self, name, value):
@@ -391,7 +366,8 @@ def curry_ViewerOutputNode(viewer: ImageRenderer):
                 )
             return rv
 
-        def _handle_input_change(self, img: ImageLike):
+        def _handle_input_change(self):
+            img = self.in_value("Image").get(ROI((0, 0), (1, 1), self.resolution))
             self._update_viewer(img)
 
         def _update_viewer(self, img: Optional[ImageLike]):
@@ -422,7 +398,7 @@ class CropNode(NeoAlchemistNode):
         super().__init__()
 
         self.add_input("Image")
-        self.define_input("Image", self._handle_input_change, ROI((0, 0), (1, 1)))
+        self.define_input("Image", self._handle_input_change)
         self.define_output("Image", ImageCache(self._handle_request_image_data))
 
         self._properties_widget = CropWidget(self.NODE_NAME)
@@ -516,21 +492,20 @@ class InvertNode(NeoAlchemistNode):
     def __init__(self):
         super().__init__()
 
-        self.define_input("Image", self._handle_input_change, ROI((0, 0), (1, 1)))
-        self._out_img_port = self.add_output("Image")
-        self._out_img_port.request_data = self._handle_request_image_data
+        self._in_image = self.define_input("Image",
+            self._handle_input_change
+            )
+        self._out_img_port = self.define_output("Image",
+            ImageCache(self._handle_request_image_data)
+            )
 
         self._properties_widget = InvertWidget(self.NODE_NAME)
 
-    def run(self):
-        in_img = request_data(self._in_img_port)
+    def _handle_input_change(self):
+        self.out_value["Image"].invalidate_cache()
 
-        self._cache = invert(in_img)
-
-    def _handle_request_image_data(self):
-        if self._cache is None:
-            self.run()
-        return self._cache
+    def _handle_request_image_data(self, roi: ROI):
+        return invert(self.in_value("Image").get(roi))
 
 class GammaNode(NeoAlchemistNode):
     NODE_NAME = "Gamma"
