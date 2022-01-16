@@ -55,6 +55,20 @@ class LabelledSlider(QWidget):
     def value(self) -> float:
         return self.slider.value()
 
+class ViewerWidget(QWidget):
+    def __init__(self,
+        parent: Optional[QWidget] = None, f: Qt.WindowFlags = Qt.WindowFlags()) -> None:
+        super().__init__(parent, f)
+
+        self._layout = QVBoxLayout(self)
+        self._renderer = ImageRenderer(np.zeros((1,1,3), dtype=np.float32))
+        self._layout.addWidget(self._renderer)
+        self.setLayout(self._layout)
+
+    @property
+    def image_renderer(self):
+        return self._renderer
+
 class SolidWidget(QGroupBox):
 
     color_changed = Signal(tuple)
