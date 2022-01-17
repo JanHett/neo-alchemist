@@ -6,8 +6,12 @@ import argparse
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 
-    parser = argparse.ArgumentParser(description="Convert a raw image of a colour negative to a positive")
-    parser.add_argument("file", type=str, help="The path to the digitised negative to process")
+    parser = argparse.ArgumentParser(
+        description="Convert a raw image of a colour negative to a positive")
+    parser.add_argument("--file", "-f",
+        type=str,
+        required=False,
+        help="A path to a Neo Alchemist recipe file (*.json)")
 
     args = parser.parse_args()
 

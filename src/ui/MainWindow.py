@@ -50,6 +50,8 @@ class MainWindow(QMainWindow):
         self.create_node_container()
         self.create_properties_panel()
         self.create_favorite_properties_panel()
+        if cl_args.file:
+            self.open_file(cl_args.file)
 
     def register_node(self, node):
         """
@@ -83,6 +85,9 @@ class MainWindow(QMainWindow):
         self._favorite_properties_container = QDockWidget("Favorite Properties", self)
 
         self.addDockWidget(Qt.LeftDockWidgetArea, self._favorite_properties_container)
+
+    def open_file(self, filename: str):
+        self._node_graph.load_session(filename)
 
     def _handle_node_click(self, node):
         self._properties_container.setWidget(node.properties_widget)
