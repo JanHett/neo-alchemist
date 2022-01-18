@@ -7,7 +7,7 @@ import numpy.typing as npt
 import numpy as np
 import rawpy
 
-from ..processing.spells import ImageFit, ImageLike, fit_image, invert, white_balance
+from ..processing.spells import ImageFit, ImageLike, fit_image, gamma, invert, white_balance
 
 from .Widgets import ColorBalanceWidget, \
     CropWidget, \
@@ -64,6 +64,9 @@ class ROI:
                 and self.size == other.size \
                 and self.resolution == other.resolution
         return NotImplemented
+
+    def __ne__(self, other):
+        return not(self == other)
 
     def __hash__(self):
         """Overrides the default implementation"""
@@ -127,7 +130,7 @@ class ImageCache:
         """
         Get value for ROI from cache or compute it if it isn't there
         """
-        if ROI not in self._cache:
+        if roi not in self._cache:
             self._cache[roi] = self._provider(roi)
 
         return self._cache[roi]
@@ -160,7 +163,7 @@ class NeoAlchemistNode(BaseNode):
         self._reactive_properties: dict[str, ReactiveProperty] = {}
         self._input_handlers: dict[str, InputHandler] = {}
         # TODO: generalise away from ImageCache
-        self.out_value: dict[str, ImageCache] = {}
+        self._out_values: dict[str, ImageCache] = {}
 
     @property
     def properties_widget(self):
@@ -168,15 +171,30 @@ class NeoAlchemistNode(BaseNode):
 
     def define_output(self, name: str, cache: ImageCache) -> Port:
         out = self.add_output(name)
-        self.out_value[name] = cache
+        self._out_values[name] = cache
         return out
 
     def define_input(self,
         name: str,
-        handler: ImageCache.SubscriberCallback) -> Port:
+        handler: ImageCache.SubscriberCallback = None) -> Port:
+        """
+        Define an input
+
+        The default `handler` invalidates all output caches whenever there is a
+        change to the input
+        """
+        if handler is None:
+            handler = self.invalidate_all_output_caches
         input = self.add_input(name)
         self._input_handlers[name] = InputHandler(handler)
         return input
+
+    @property
+    def out_values(self):
+        return self._out_values
+
+    def out_value(self, name):
+        return self._out_values[name]
 
     def in_value(self, name):
         """
@@ -186,11 +204,8 @@ class NeoAlchemistNode(BaseNode):
         if len(connected) == 0:
             return ZERO_CACHE
         source_port: Port = connected[0]
-        source_cache: ImageCache = source_port.node().out_value[source_port.name()]
+        source_cache: ImageCache = source_port.node().out_value(source_port.name())
         return source_cache
-
-    def input_data(self, input_name):
-        return request_data(self.get_input(input_name))
 
     def reactive_property(self,
         name: str,
@@ -228,9 +243,11 @@ class NeoAlchemistNode(BaseNode):
         """
         rv = super().set_property(name, value)
 
-        # update ImageCache for all outputs
-        for out in self.out_value:
-            self.out_value[out].invalidate_cache()
+        # only invalidate cache for custom properties
+        if name not in self.model.properties.keys():
+            # update ImageCache for all outputs
+            for out in self._out_values.values():
+                out.invalidate_cache()
 
         return rv
 
@@ -249,15 +266,24 @@ class NeoAlchemistNode(BaseNode):
         return self._set_property(name, value)
 
     def on_input_connected(self, in_port: Port, out_port: Port):
-        cache: ImageCache = out_port.node().out_value[out_port.name()]
+        cache: ImageCache = out_port.node().out_value(out_port.name())
         input_handler = self._input_handlers[in_port.name()]
         cache.subscribe(input_handler.handler)
         return super().on_input_connected(in_port, out_port)
 
     def on_input_disconnected(self, in_port: Port, out_port: Port):
-        cache: ImageCache = out_port.node().out_value[out_port.name()]
+        cache: ImageCache = out_port.node().out_value(out_port.name())
         cache.unsubscribe(self._input_handlers[in_port.name()].handler)
         return super().on_input_disconnected(in_port, out_port)
+
+    def invalidate_all_output_caches(self):
+        """
+        Invalidates the cache of all outputs
+
+        This serves as the default handler for changes in input ImageCache(s)
+        """
+        for out in self._out_values.values():
+            out.invalidate_cache()
 
 class SolidNode(NeoAlchemistNode):
     NODE_NAME = "Solid"
@@ -274,7 +300,6 @@ class SolidNode(NeoAlchemistNode):
             self._properties_widget.color_changed)
 
     def _handle_request_image_data(self, roi: ROI):
-        print(f"Solid:: Returning pixels for {roi}")
         shape = (roi.resolution[1], roi.resolution[0], 3) if roi.resolution[0] > 0 and roi.resolution[1] > 0 else (1, 1, 3)
         return np.full(shape, self._properties_widget.get_color())
 
@@ -323,6 +348,7 @@ class RawFileInputNode(NeoAlchemistNode):
     def filename(self) -> str:
         return self.get_property("filename")
 
+# TODO
 class FileOutputNode(NeoAlchemistNode):
     NODE_NAME = "File Output"
 
@@ -393,6 +419,7 @@ def curry_ViewerOutputNode(viewer: ImageRenderer):
 
     return ViewerOutputNode
 
+# TODO
 class CropNode(NeoAlchemistNode):
     NODE_NAME = "Crop"
 
@@ -433,6 +460,7 @@ class CropNode(NeoAlchemistNode):
     def _handle_request_image_data(self):
         return self._cache
 
+# TODO
 class GreyBalanceNode(NeoAlchemistNode):
     NODE_NAME = "Grey Balance"
     def __init__(self):
@@ -473,6 +501,7 @@ class GreyBalanceNode(NeoAlchemistNode):
     def _handle_request_image_data(self):
         return self._cache
 
+# TODO
 class TwoPointColorBalanceNode(NeoAlchemistNode):
     NODE_NAME = "Two-Point Color Balance"
 
@@ -494,17 +523,12 @@ class InvertNode(NeoAlchemistNode):
     def __init__(self):
         super().__init__()
 
-        self._in_image = self.define_input("Image",
-            self._handle_input_change
-            )
+        self._in_image = self.define_input("Image")
         self._out_img_port = self.define_output("Image",
             ImageCache(self._handle_request_image_data)
             )
 
         self._properties_widget = InvertWidget(self.NODE_NAME)
-
-    def _handle_input_change(self):
-        self.out_value["Image"].invalidate_cache()
 
     def _handle_request_image_data(self, roi: ROI):
         return invert(self.in_value("Image").get(roi))
@@ -515,11 +539,21 @@ class GammaNode(NeoAlchemistNode):
     def __init__(self):
         super().__init__()
 
-        self.add_input("Image")
-        self.add_output("Image")
+        self.define_input("Image")
+        self.define_output("Image", ImageCache(self._handle_request_image_data))
 
         self._properties_widget = GammaWidget(self.NODE_NAME)
 
+        self.reactive_property("gamma", 1,
+            self._properties_widget.gamma,
+            self._properties_widget.set_gamma,
+            self._properties_widget.gamma_changed)
+
+    def _handle_request_image_data(self, roi: ROI):
+        in_img = self.in_value("Image").get(roi)
+        return gamma(in_img, self.get_property("gamma"))
+
+# TODO
 class EstimateColorBalanceNode(NeoAlchemistNode):
     NODE_NAME = "Estimate Color Balance"
 
@@ -531,6 +565,7 @@ class EstimateColorBalanceNode(NeoAlchemistNode):
 
         self._properties_widget = EstimateColorBalanceWidget(self.NODE_NAME)
 
+# TODO
 class PerChannelAverageNode(NeoAlchemistNode):
     NODE_NAME = "Per-Channel Average"
 

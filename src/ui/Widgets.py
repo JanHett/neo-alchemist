@@ -318,6 +318,16 @@ class GammaWidget(QGroupBox):
 
         self.setLayout(self._layout)
 
+    def gamma(self):
+        return self._gamma.value()
+
+    def set_gamma(self, value):
+        return self._gamma.setValue(value)
+
+    @property
+    def gamma_changed(self):
+        return self._gamma.valueChanged
+
 class EstimateColorBalanceWidget(QGroupBox):
     def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(title, parent=parent)
