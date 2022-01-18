@@ -5,7 +5,7 @@
 from PySide2.QtCore import Qt
 from PySide2.QtWidgets import QDockWidget, QMainWindow
 
-from NodeGraphQt import NodeGraph, BackdropNode, setup_context_menu
+from NodeGraphQt import NodeGraph, Port, BackdropNode, setup_context_menu
 
 from .Widgets import ViewerWidget
 from .Nodes import \
@@ -64,6 +64,7 @@ class MainWindow(QMainWindow):
         self._node_container = QDockWidget("Recipe", self)
 
         self._node_graph = NodeGraph(self._node_container)
+        self._node_graph.use_OpenGL()
         setup_context_menu(self._node_graph)
 
         for n in self._nodes:

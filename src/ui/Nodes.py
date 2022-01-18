@@ -132,6 +132,8 @@ class ImageCache:
 
         return self._cache[roi]
 
+ZERO_CACHE = ImageCache(lambda roi: np.zeros((roi.resolution[1], roi.resolution[0], 3)))
+
 class ReactiveProperty:
     def __init__(self,
         name: str,
@@ -180,7 +182,10 @@ class NeoAlchemistNode(BaseNode):
         """
         Get the value from the node connected to the input called `name`
         """
-        source_port: Port = self.get_input(name).connected_ports()[0]
+        connected = self.get_input(name).connected_ports()
+        if len(connected) == 0:
+            return ZERO_CACHE
+        source_port: Port = connected[0]
         source_cache: ImageCache = source_port.node().out_value[source_port.name()]
         return source_cache
 
@@ -360,10 +365,7 @@ def curry_ViewerOutputNode(viewer: ImageRenderer):
         def _set_property(self, name, value):
             rv = super()._set_property(name, value)
             if name == "viewer_width" or name == "viewer_height":
-                self.update_roi(
-                    self._in_image,
-                    ROI((0, 0), (1, 1), self.resolution)
-                )
+                self._handle_input_change()
             return rv
 
         def _handle_input_change(self):

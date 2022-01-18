@@ -11,7 +11,7 @@ matplotlib = "*"
 superqt = "*"
 pyside2 = "*"
 "qt.py" = "*"
-nodegraphqt = {git = "https://github.com/jchanvfx/NodeGraphQt.git"}
+nodegraphqt = {editable = true, ref = "callbacks_during_deserialization", git = "https://github.com/JanHett/NodeGraphQt.git"}
 scikit-image = {extras = ["optional"], version = "*"}
 
 [dev-packages]
