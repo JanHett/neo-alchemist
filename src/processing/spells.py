@@ -127,17 +127,26 @@ def linear_contrast(image: ImageLike, shadows: float, highlights: float):
 
     return image * slope + shadows
 
-def highlow_balance(image: ImageLike,
-    shadow_red: float, shadow_green: float, shadow_blue: float,
-    high_red: float, high_green: float, high_blue: float):
+def two_point_color_balance(image: ImageLike,
+    shadow_balance: Color, highlight_balance: Color) -> ImageLike:
     """
     Adjust the balance of the highlights and shadows
-    """
-    shadows = np.array((shadow_red, shadow_green, shadow_blue))
-    highs = np.array((high_red, high_green, high_blue))
 
-    slope = highs - shadows
-    return image * slope + shadows
+    The shadows balance should revolve around 0.2, hoghlight around 0.8
+
+    TODO: make shadow and highlight pivots dynamic instead of hardcoded
+    """
+    shadows = np.array(shadow_balance)
+    highs = np.array(highlight_balance)
+
+    shadow_pivot = 0.2
+    highlight_pivot = 0.8
+
+    base_len = highlight_pivot - shadow_pivot
+    high_low_diff = highs - shadows
+
+    slope = high_low_diff / base_len
+    return (image - shadow_pivot) * slope + shadows
 
 def invert(image: ImageLike):
     """

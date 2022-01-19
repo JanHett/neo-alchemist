@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 from PySide2.QtCore import QRect, Qt, Signal
 from PySide2.QtWidgets import QCheckBox, QDockWidget, QFileDialog, QGridLayout, QGroupBox, QLabel, QOpenGLWidget, QPushButton, QSlider, QDoubleSpinBox, QSpinBox, QVBoxLayout, QWidget
 # from PySide2.QtOpenGLWidgets import QOpenGLWidget
@@ -71,53 +71,30 @@ class ViewerWidget(QWidget):
 
 class SolidWidget(QGroupBox):
 
-    color_changed = Signal(tuple)
-
     def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(title, parent=parent)
 
         self._layout = QVBoxLayout(self)
         self._layout.setAlignment(Qt.AlignTop)
 
-        minimum = 0
-        maximum = 1
+        self.color = ColorPicker(self)
+        self.color.setMinimum(0)
+        self.color.setMaximum(1)
+        self.color.setValue(0.5)
 
-        self.red = LabelledSlider("Red", self)
-        self.red.setMinimum(minimum)
-        self.red.setMaximum(maximum)
-        self.red.setValue(1)
-        self.red.valueChanged.connect(self._handle_value_changed)
-        self.green = LabelledSlider("Green", self)
-        self.green.setMinimum(minimum)
-        self.green.setMaximum(maximum)
-        self.green.setValue(1)
-        self.green.valueChanged.connect(self._handle_value_changed)
-        self.blue = LabelledSlider("Blue", self)
-        self.blue.setMinimum(minimum)
-        self.blue.setMaximum(maximum)
-        self.blue.setValue(1)
-        self.blue.valueChanged.connect(self._handle_value_changed)
-
-        self._layout.addWidget(self.red)
-        self._layout.addWidget(self.green)
-        self._layout.addWidget(self.blue)
+        self._layout.addWidget(self.color)
 
         self.setLayout(self._layout)
 
     def get_color(self) -> Color:
-        return (
-            self.red.value(), 
-            self.green.value(), 
-            self.blue.value()
-        )
+        return self.color.value()
 
     def set_color(self, color: Color):
-        self.red.setValue(color[0])
-        self.green.setValue(color[1])
-        self.blue.setValue(color[2])
+        self.color.setValue(color)
 
-    def _handle_value_changed(self, _):
-        self.color_changed.emit(self.get_color())
+    @property
+    def color_changed(self) -> Signal:
+        return self.color.color_changed
 
 class FileIOWidget(QGroupBox):
     """
@@ -177,6 +154,83 @@ class FileOutputWidget(FileIOWidget):
         self._filename = QFileDialog.getSaveFileName(self,
             "Save File", "/", self.name_filter)[0]
 
+class ColorPicker(QWidget):
+    """
+    A general purpose color picker
+    """
+
+    color_changed = Signal(tuple)
+
+    def __init__(self, parent: Optional[QWidget] = None, f: Qt.WindowFlags = Qt.WindowFlags()) -> None:
+        super().__init__(parent, f)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self.red = LabelledSlider("Red", self)
+        self.green = LabelledSlider("Green", self)
+        self.blue = LabelledSlider("Blue", self)
+
+        self.setMinimum(0)
+        self.setMaximum(1)
+        self.setValue(1)
+
+        self.red.valueChanged.connect(self._emit_color_changed)
+        self.green.valueChanged.connect(self._emit_color_changed)
+        self.blue.valueChanged.connect(self._emit_color_changed)
+
+        self._layout.addWidget(self.red)
+        self._layout.addWidget(self.green)
+        self._layout.addWidget(self.blue)
+
+        self.setLayout(self._layout)
+
+    def setMinimum(self, value: Union[Color, float]) -> None:
+        """
+        Set minimum for all channels
+
+        If a `Color` is provided, its channels are taken to refer to RGB values
+        """
+        try:
+            self.red.setMinimum(value[0])
+            self.green.setMinimum(value[1])
+            self.blue.setMinimum(value[2])
+        except TypeError:
+            self.red.setMinimum(value)
+            self.green.setMinimum(value)
+            self.blue.setMinimum(value)
+
+    def setMaximum(self, value: Union[Color, float]) -> None:
+        """
+        Set maximum for all channels
+
+        If a `Color` is provided, its channels are taken to refer to RGB values
+        """
+        try:
+            self.red.setMaximum(value[0])
+            self.green.setMaximum(value[1])
+            self.blue.setMaximum(value[2])
+        except TypeError:
+            self.red.setMaximum(value)
+            self.green.setMaximum(value)
+            self.blue.setMaximum(value)
+
+    def setValue(self, value: Union[Color, float]) -> None:
+        try:
+            self.red.setValue(value[0])
+            self.green.setValue(value[1])
+            self.blue.setValue(value[2])
+        except TypeError:
+            self.red.setValue(value)
+            self.green.setValue(value)
+            self.blue.setValue(value)
+
+    def value(self) -> Color:
+        return (self.red.value(), self.green.value(), self.blue.value())
+
+    def _emit_color_changed(self, _):
+        self.color_changed.emit(self.value())
+
 class ColorBalanceWidget(QGroupBox):
     """
     Widget to balance three primary colours
@@ -187,46 +241,13 @@ class ColorBalanceWidget(QGroupBox):
         self._layout = QVBoxLayout(self)
         self._layout.setAlignment(Qt.AlignTop)
 
-        self.activated = QCheckBox("Activated", self)
-        self._layout.addWidget(self.activated)
-
-        minimum = 0.8
-        maximum = 1.2
-
-        self.red = LabelledSlider("Red", self)
-        self.red.setMinimum(minimum)
-        self.red.setMaximum(maximum)
-        self.red.setValue(1)
-        self.green = LabelledSlider("Green", self)
-        self.green.setMinimum(minimum)
-        self.green.setMaximum(maximum)
-        self.green.setValue(1)
-        self.blue = LabelledSlider("Blue", self)
-        self.blue.setMinimum(minimum)
-        self.blue.setMaximum(maximum)
-        self.blue.setValue(1)
-
-        self._layout.addWidget(self.red)
-        self._layout.addWidget(self.green)
-        self._layout.addWidget(self.blue)
+        self.color = ColorPicker(self)
+        self.color.setMinimum(0.8)
+        self.color.setMaximum(1.2)
+        self.color.setValue(1)
+        self._layout.addWidget(self.color)
 
         self.setLayout(self._layout)
-
-    def setMinimum(self, value: float):
-        """
-        Set minimum for all channel sliders
-        """
-        self.red.setMinimum(value)
-        self.green.setMinimum(value)
-        self.blue.setMinimum(value)
-
-    def setMaximum(self, value: float):
-        """
-        Set maximum for all channel sliders
-        """
-        self.red.setMaximum(value)
-        self.green.setMaximum(value)
-        self.blue.setMaximum(value)
 
 class TwoPointColorBalanceWidget(QGroupBox):
     """
@@ -238,46 +259,24 @@ class TwoPointColorBalanceWidget(QGroupBox):
         self._layout = QVBoxLayout(self)
         self._layout.setAlignment(Qt.AlignTop)
 
-        self.activated = QCheckBox("Activated", self)
-        self._layout.addWidget(self.activated)
+        self._shadow_label = QLabel("Shadow Balance", self)
+        self.shadow_balance = ColorPicker(self)
+        self.shadow_balance.setMinimum(0)
+        self.shadow_balance.setMaximum(1)
+        self.shadow_balance.setValue(0.2)
 
-        minimum = 0.8
-        maximum = 1.2
+        self._highlight_label = QLabel("Highlight Balance", self)
+        self.highlight_balance = ColorPicker(self)
+        self.highlight_balance.setMinimum(0)
+        self.highlight_balance.setMaximum(1)
+        self.highlight_balance.setValue(0.8)
 
-        self.red = LabelledSlider("Red", self)
-        self.red.setMinimum(minimum)
-        self.red.setMaximum(maximum)
-        self.red.setValue(1)
-        self.green = LabelledSlider("Green", self)
-        self.green.setMinimum(minimum)
-        self.green.setMaximum(maximum)
-        self.green.setValue(1)
-        self.blue = LabelledSlider("Blue", self)
-        self.blue.setMinimum(minimum)
-        self.blue.setMaximum(maximum)
-        self.blue.setValue(1)
-
-        self._layout.addWidget(self.red)
-        self._layout.addWidget(self.green)
-        self._layout.addWidget(self.blue)
+        self._layout.addWidget(self._shadow_label)
+        self._layout.addWidget(self.shadow_balance)
+        self._layout.addWidget(self._highlight_label)
+        self._layout.addWidget(self.highlight_balance)
 
         self.setLayout(self._layout)
-
-    def setMinimum(self, value: float):
-        """
-        Set minimum for all channel sliders
-        """
-        self.red.setMinimum(value)
-        self.green.setMinimum(value)
-        self.blue.setMinimum(value)
-
-    def setMaximum(self, value: float):
-        """
-        Set maximum for all channel sliders
-        """
-        self.red.setMaximum(value)
-        self.green.setMaximum(value)
-        self.blue.setMaximum(value)
 
 class CropWidget(QGroupBox):
     def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:

@@ -7,7 +7,7 @@ import numpy.typing as npt
 import numpy as np
 import rawpy
 
-from ..processing.spells import ImageFit, ImageLike, fit_image, gamma, invert, white_balance
+from ..processing.spells import ImageFit, ImageLike, fit_image, gamma, invert, two_point_color_balance, white_balance
 
 from .Widgets import ColorBalanceWidget, \
     CropWidget, \
@@ -276,6 +276,11 @@ class NeoAlchemistNode(BaseNode):
         cache.unsubscribe(self._input_handlers[in_port.name()].handler)
         return super().on_input_disconnected(in_port, out_port)
 
+    def is_input_connected(self, input: str):
+        """Returns true if the `input` is connected to an output"""
+        port: Port = self.get_input(input)
+        return len(port.connected_ports()) > 0
+
     def invalidate_all_output_caches(self):
         """
         Invalidates the cache of all outputs
@@ -300,7 +305,11 @@ class SolidNode(NeoAlchemistNode):
             self._properties_widget.color_changed)
 
     def _handle_request_image_data(self, roi: ROI):
-        shape = (roi.resolution[1], roi.resolution[0], 3) if roi.resolution[0] > 0 and roi.resolution[1] > 0 else (1, 1, 3)
+        if roi.resolution[0] > 0 and roi.resolution[1] > 0:
+            shape = (roi.resolution[1], roi.resolution[0], 3)
+        else:
+            shape = (1, 1, 3)
+
         return np.full(shape, self._properties_widget.get_color())
 
 
@@ -501,19 +510,64 @@ class GreyBalanceNode(NeoAlchemistNode):
     def _handle_request_image_data(self):
         return self._cache
 
-# TODO
 class TwoPointColorBalanceNode(NeoAlchemistNode):
     NODE_NAME = "Two-Point Color Balance"
 
     def __init__(self):
         super().__init__()
 
-        self.add_input("Image")
-        self.add_input("Light Sample")
-        self.add_input("Dark Sample")
-        self.add_output("Image")
+        self.define_input("Image")
+        self.define_input("Highlight Sample")
+        self.define_input("Shadow Sample")
+        self.define_output("Image", ImageCache(self._handle_request_image_data))
 
         self._properties_widget = TwoPointColorBalanceWidget(self.NODE_NAME)
+
+        self.reactive_property("shadow_balance", 0.2,
+            self._properties_widget.shadow_balance.value,
+            self._properties_widget.shadow_balance.setValue,
+            self._properties_widget.shadow_balance.color_changed)
+
+        self.reactive_property("highlight_balance", 0.8,
+            self._properties_widget.highlight_balance.value,
+            self._properties_widget.highlight_balance.setValue,
+            self._properties_widget.highlight_balance.color_changed)
+
+    def _handle_request_image_data(self, roi: ROI):
+        return two_point_color_balance(self.in_value("Image").get(roi),
+            self.shadow_balance, self.highlight_balance)
+
+    @property
+    def shadow_balance(self):
+        base = np.array((0, 0, 0))
+        if self.is_input_connected("Shadow Sample"):
+            base = self.in_value("Shadow Sample")
+
+        offset = self.get_property("shadow_balance")
+
+        return base + offset
+
+    @property
+    def highlight_balance(self):
+        base = np.array((0, 0, 0))
+        if self.is_input_connected("Highlight Sample"):
+            base = self.in_value("Highlight Sample")
+
+        offset = self.get_property("highlight_balance")
+
+        return base + offset
+
+    def on_input_connected(self, in_port: Port, out_port: Port):
+        if (in_port.name() in ("Highlight Sample", "Shadow Sample")):
+            self.set_property("shadow_balance", 0)
+            self.set_property("highlight_balance", 0)
+        return super().on_input_connected(in_port, out_port)
+
+    def on_input_disconnected(self, in_port: Port, out_port: Port):
+        # TODO: reset shadow and hoghlight balance after disconnection
+        # self.set_property("shadow_balance", old_shadow_balance)
+        # self.set_property("highlight_balance", old_highlight_balance)
+        return super().on_input_disconnected(in_port, out_port)
 
 class InvertNode(NeoAlchemistNode):
     NODE_NAME = "Invert"
