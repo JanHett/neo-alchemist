@@ -102,13 +102,14 @@ class FileIOWidget(QGroupBox):
     """
 
     name_filter = "Any File (*)"
-    _filename = ""
 
     filename_changed = Signal(str)
 
     def __init__(self, title: str,
         parent: Optional[QWidget] = None) -> None:
         super().__init__(title, parent=parent)
+
+        self._filename = ""
 
         self._layout = QVBoxLayout(self)
         self._layout.setAlignment(Qt.AlignTop)
@@ -138,10 +139,14 @@ class FileIOWidget(QGroupBox):
         self._filename = value
         self.filename_changed.emit(self.filename)
 
+    @filename.setter
+    def filename(self, value):
+        self.set_filename(value)
+
 
 class FileInputWidget(FileIOWidget):
     def _handle_file_picker_click(self):
-        self._filename = QFileDialog.getOpenFileName(self,
+        self.filename = QFileDialog.getOpenFileName(self,
             "Open Image", "/", self.name_filter)[0]
 
         print(f"filename: '{self.filename}'")
@@ -150,8 +155,16 @@ class RawFileInputWidget(FileInputWidget):
     pass
 
 class FileOutputWidget(FileIOWidget):
+    def __init__(self, title: str,
+        parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self.process_button = QPushButton("Process", self)
+
+        self._layout.addWidget(self.process_button)
+
     def _handle_file_picker_click(self):
-        self._filename = QFileDialog.getSaveFileName(self,
+        self.filename = QFileDialog.getSaveFileName(self,
             "Save File", "/", self.name_filter)[0]
 
 class ColorPicker(QWidget):
@@ -326,6 +339,55 @@ class GammaWidget(QGroupBox):
     @property
     def gamma_changed(self):
         return self._gamma.valueChanged
+
+class ContrastWidget(QGroupBox):
+    parameters_changed = Signal(float, float)
+
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self._contrast = LabelledSlider("Contrast", self)
+        self._contrast.setMinimum(0)
+        self._contrast.setMaximum(2)
+        self._contrast.setValue(1)
+        self._layout.addWidget(self._contrast)
+
+        self._lift = LabelledSlider("Lift", self)
+        self._lift.setMinimum(-0.5)
+        self._lift.setMaximum(1)
+        self._lift.setValue(0)
+        self._layout.addWidget(self._lift)
+
+        self.contrast_changed.connect(self._emit_parameters_changed)
+        self.lift_changed.connect(self._emit_parameters_changed)
+
+        self.setLayout(self._layout)
+
+    def contrast(self):
+        return self._contrast.value()
+
+    def set_contrast(self, value):
+        return self._contrast.setValue(value)
+
+    @property
+    def contrast_changed(self):
+        return self._contrast.valueChanged
+
+    def lift(self):
+        return self._lift.value()
+
+    def set_lift(self, value):
+        return self._lift.setValue(value)
+
+    @property
+    def lift_changed(self):
+        return self._lift.valueChanged
+
+    def _emit_parameters_changed(self):
+        self.parameters_changed.emit
 
 class EstimateColorBalanceWidget(QGroupBox):
     def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:

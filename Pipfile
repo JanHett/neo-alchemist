@@ -13,6 +13,7 @@ pyside2 = "*"
 "qt.py" = "*"
 nodegraphqt = {editable = true, ref = "callbacks_during_deserialization", git = "https://github.com/JanHett/NodeGraphQt.git"}
 scikit-image = {extras = ["optional"], version = "*"}
+lcms = "*"
 
 [dev-packages]
 mypy = "*"

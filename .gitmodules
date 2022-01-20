@@ -1,3 +1,6 @@
 [submodule "external/OpenColorIO-Configs"]
 	path = external/OpenColorIO-Configs
 	url = https://github.com/colour-science/OpenColorIO-Configs.git
+[submodule "external/elles_icc_profiles"]
+	path = external/elles_icc_profiles
+	url = https://github.com/ellelstone/elles_icc_profiles.git

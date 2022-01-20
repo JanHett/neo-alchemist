@@ -1,15 +1,19 @@
+import os.path
 from typing import Callable, Optional, Tuple, Union
+
 from NodeGraphQt import BaseNode, Port
 from PySide2.QtCore import Signal
-from numpy.lib.utils import source
 
 import numpy.typing as npt
 import numpy as np
+
 import rawpy
+import OpenImageIO as oiio
+import lcms
 
-from ..processing.spells import ImageFit, ImageLike, fit_image, gamma, invert, two_point_color_balance, white_balance
+from ..processing.spells import ImageFit, ImageLike, fit_image, gamma, invert, lin_to_srgb, linear_contrast, two_point_color_balance, white_balance
 
-from .Widgets import ColorBalanceWidget, \
+from .Widgets import ColorBalanceWidget, ContrastWidget, \
     CropWidget, \
     EstimateColorBalanceWidget, \
     FileOutputWidget, \
@@ -82,13 +86,22 @@ def get_roi(img: ImageLike, roi: ROI) -> ImageLike:
     """
     Return the chunk of `img` that is defined by `roi`
     """
-    x, y = np.floor(img.shape[:1] * np.array(roi.position)).astype(int)
-    w, h = np.floor(img.shape[:1] * np.array(roi.size)).astype(int)
+    if 0 in roi.resolution:
+        resolution = img.shape[:2]
+    else:
+        resolution = roi.resolution
 
-    sub_img = img[x:x+w, y:y+h]
+    y, x = np.floor(
+        img.shape[:1] * np.array((roi.position[1], roi.position[0]))
+    ).astype(int)
+    h, w = np.floor(
+        img.shape[:1] * np.array((roi.size[1], roi.size[0]))
+    ).astype(int)
+
+    sub_img = img[y:y+h, x:x+w]
 
     # scale to resolution
-    sub_img = fit_image(sub_img, roi.resolution)
+    sub_img = fit_image(sub_img, resolution)
 
     return sub_img
 
@@ -357,16 +370,55 @@ class RawFileInputNode(NeoAlchemistNode):
     def filename(self) -> str:
         return self.get_property("filename")
 
-# TODO
 class FileOutputNode(NeoAlchemistNode):
     NODE_NAME = "File Output"
 
     def __init__(self):
         super().__init__()
 
-        self.add_input("Image")
+        self.define_input("Image")
 
         self._properties_widget = FileOutputWidget(self.NODE_NAME)
+
+        self.reactive_property("filename", "",
+            self._properties_widget.get_filename,
+            self._properties_widget.set_filename,
+            self._properties_widget.filename_changed)
+
+        self._properties_widget.process_button.clicked.connect(self._process)
+
+    def _process(self):
+        img = self.in_value("Image").get(ROI())
+        pixformat = "uint8" # 'uint16' is TODO
+
+        # Convert from linear ACES to sRGB (others are TODO)
+        # dtype = np.uint16 if pixformat == "uint16" else np.uint8
+        # max_val = np.iinfo(dtype).max
+        # formatted_pixels = (img.clip(0, 1) * max_val).astype(dtype)
+        # this_dir = os.path.abspath(os.path.dirname(__file__))
+        # aces_profile_path = os.path.join(this_dir, "../../external/elles_icc_profiles/profiles/ACES-elle-V2-g10.icc")
+        # srgb_profile_path = os.path.join(this_dir, "../../external/elles_icc_profiles/profiles/sRGB-elle-V2-srgbtrc.icc")
+        # srgb_pixels = lcms.apply_profile(formatted_pixels, aces_profile_path, srgb_profile_path)
+        
+        srgb_pixels = lin_to_srgb(img)
+        dtype = np.uint16 if pixformat == "uint16" else np.uint8
+        max_val = np.iinfo(dtype).max
+        srgb_pixels = (srgb_pixels.clip(0, 1) * max_val).astype(dtype)
+
+        filename = self.get_property("filename")
+        output = oiio.ImageOutput.create(filename)
+        if not output:
+            print("OIIO Error". oiio.geterror())
+            return
+
+        spec = oiio.ImageSpec(
+            srgb_pixels.shape[1],
+            srgb_pixels.shape[0],
+            srgb_pixels.shape[2],
+            pixformat)
+        output.open(filename, spec)
+        output.write_image(srgb_pixels)
+        output.close()
 
 def curry_ViewerOutputNode(viewer: ImageRenderer):
     """
@@ -427,6 +479,32 @@ def curry_ViewerOutputNode(viewer: ImageRenderer):
             )
 
     return ViewerOutputNode
+
+# TODO: more customisable transform
+class ColorSpaceTransformNode(NeoAlchemistNode):
+    NODE_NAME = "Color Space Transform"
+
+    def __init__(self):
+        super().__init__()
+
+        self.define_input("Image")
+        self.define_output("Image", ImageCache(self._handle_request_image_data))
+
+        # TODO: add a properties_widget
+
+    def _handle_request_image_data(self, roi: ROI):
+        in_img = self.in_value("Image").get(roi)
+
+        # Convert from linear ACES to sRGB (others are TODO)
+        # this_dir = os.path.abspath(os.path.dirname(__file__))
+        # aces_profile_path = os.path.join(this_dir, "../../external/elles_icc_profiles/profiles/ACES-elle-V2-g10.icc")
+        # srgb_profile_path = os.path.join(this_dir, "../../external/elles_icc_profiles/profiles/sRGB-elle-V2-srgbtrc.icc")
+        # srgb_pixels = lcms.apply_profile(in_img, aces_profile_path, srgb_profile_path)
+
+        srgb_pixels = lin_to_srgb(in_img)
+
+        return srgb_pixels
+
 
 # TODO
 class CropNode(NeoAlchemistNode):
@@ -606,6 +684,31 @@ class GammaNode(NeoAlchemistNode):
     def _handle_request_image_data(self, roi: ROI):
         in_img = self.in_value("Image").get(roi)
         return gamma(in_img, self.get_property("gamma"))
+
+class ContrastNode(NeoAlchemistNode):
+    NODE_NAME = "Contrast"
+
+    def __init__(self):
+        super().__init__()
+
+        self.define_input("Image")
+        self.define_output("Image", ImageCache(self._handle_request_image_data))
+
+        self._properties_widget = ContrastWidget(self.NODE_NAME)
+
+        self.reactive_property("contrast", 1,
+            self._properties_widget.contrast,
+            self._properties_widget.set_contrast,
+            self._properties_widget.contrast_changed)
+
+        self.reactive_property("lift", 1,
+            self._properties_widget.lift,
+            self._properties_widget.set_lift,
+            self._properties_widget.lift_changed)
+
+    def _handle_request_image_data(self, roi: ROI):
+        in_img = self.in_value("Image").get(roi)
+        return linear_contrast(in_img, self.get_property("lift"), self.get_property("contrast"))
 
 # TODO
 class EstimateColorBalanceNode(NeoAlchemistNode):

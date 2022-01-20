@@ -13,11 +13,13 @@ from .Nodes import \
     RawFileInputNode, \
     FileOutputNode, \
     curry_ViewerOutputNode, \
+    ColorSpaceTransformNode, \
     CropNode, \
     GreyBalanceNode, \
     TwoPointColorBalanceNode, \
     InvertNode, \
     GammaNode, \
+    ContrastNode, \
     EstimateColorBalanceNode, \
     PerChannelAverageNode
 
@@ -38,11 +40,13 @@ class MainWindow(QMainWindow):
             RawFileInputNode,
             FileOutputNode,
             curry_ViewerOutputNode(viewer.image_renderer),
+            ColorSpaceTransformNode,
             CropNode,
             GreyBalanceNode,
             TwoPointColorBalanceNode,
             InvertNode,
             GammaNode,
+            ContrastNode,
             EstimateColorBalanceNode,
             PerChannelAverageNode
         ]

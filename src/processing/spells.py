@@ -1,3 +1,4 @@
+import os
 from math import floor
 from enum import Enum
 from typing import Tuple
@@ -5,6 +6,8 @@ import rawpy
 import numpy as np
 import numpy.typing as npt
 from skimage.transform import resize
+
+import PyOpenColorIO as OCIO
 
 ####################################################
 # TYPE ALIASES
@@ -119,13 +122,11 @@ def gamma(image: ImageLike, gamma: float):
     """
     return np.maximum(0, image) ** gamma
 
-def linear_contrast(image: ImageLike, shadows: float, highlights: float):
+def linear_contrast(image: ImageLike, lift: float, slope: float):
     """
     Adjust contrast linearly to parameters
     """
-    slope = highlights - shadows
-
-    return image * slope + shadows
+    return image * slope + lift
 
 def two_point_color_balance(image: ImageLike,
     shadow_balance: Color, highlight_balance: Color) -> ImageLike:
@@ -136,8 +137,8 @@ def two_point_color_balance(image: ImageLike,
 
     TODO: make shadow and highlight pivots dynamic instead of hardcoded
     """
-    shadows = np.array(shadow_balance)
-    highs = np.array(highlight_balance)
+    shadows = np.array(shadow_balance, dtype=np.float32)
+    highs = np.array(highlight_balance, dtype=np.float32)
 
     shadow_pivot = 0.2
     highlight_pivot = 0.8
@@ -154,3 +155,49 @@ def invert(image: ImageLike):
     """
 
     return 1 - image
+
+####################################################
+# COLOUR MANAGEMENT FUNCTIONS
+####################################################
+
+print("OCIO env variable:", os.environ["OCIO"])
+
+ocio_config = OCIO.GetCurrentConfig()
+
+ocio_display = ocio_config.getDefaultDisplay()
+ocio_view = ocio_config.getDefaultView(ocio_display)
+ocio_processor = ocio_config.getProcessor(
+    OCIO.ROLE_SCENE_LINEAR,
+    ocio_display,
+    ocio_view,
+    OCIO.TRANSFORM_DIR_FORWARD)
+ocio_cpu = ocio_processor.getDefaultCPUProcessor()
+
+def lin_to_display(image):
+    """
+    Applies a scene-linear to display colour space transform to a copy of the
+    image
+    """
+    to_convert = image.copy()
+    ocio_cpu.applyRGB(to_convert)
+
+    print(f"max: {np.max(to_convert)}")
+    print(f"min: {np.min(to_convert)}")
+
+    return to_convert
+
+srgb_processor = ocio_config.getProcessor(OCIO.ROLE_SCENE_LINEAR, "Output - sRGB")
+srgb_cpu = srgb_processor.getDefaultCPUProcessor()
+
+def lin_to_srgb(image):
+    to_convert = image.copy()
+    print(f"[[ BEFORE TRANSFORM ]] max: {np.max(to_convert)}")
+    print(f"[[ BEFORE TRANSFORM ]] min: {np.min(to_convert)}")
+
+    srgb_cpu.applyRGB(to_convert)
+
+    print(f"[[ AFTER TRANSFORM ]] max: {np.max(to_convert)}")
+    print(f"[[ AFTER TRANSFORM ]] min: {np.min(to_convert)}")
+    print(f"to_convert.dtype: {to_convert.dtype}")
+
+    return to_convert
