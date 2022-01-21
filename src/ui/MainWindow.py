@@ -21,7 +21,14 @@ from .Nodes import \
     GammaNode, \
     ContrastNode, \
     EstimateColorBalanceNode, \
-    PerChannelAverageNode
+    PerChannelAverageNode, \
+    AddNode, \
+    MultiplyNode, \
+    EqualsNode, \
+    LessThanNode, \
+    GreaterThanNode, \
+    OrNode, \
+    AndNode
 
 class MainWindow(QMainWindow):
     def __init__(self, cl_args) -> None:
@@ -48,7 +55,14 @@ class MainWindow(QMainWindow):
             GammaNode,
             ContrastNode,
             EstimateColorBalanceNode,
-            PerChannelAverageNode
+            PerChannelAverageNode,
+            AddNode,
+            MultiplyNode,
+            EqualsNode,
+            LessThanNode,
+            GreaterThanNode,
+            OrNode,
+            AndNode
         ]
 
         self.create_node_container()

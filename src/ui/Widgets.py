@@ -407,6 +407,158 @@ class PerChannelAverageWidget(QGroupBox):
 
         self.setLayout(self._layout)
 
+class AddWidget(QGroupBox):
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self.summand = LabelledSlider("Summand")
+        self.summand.setMinimum(-8)
+        self.summand.setMaximum( 8)
+        self.summand.setValue(1)
+        self._layout.addWidget(self.summand)
+
+        self.setLayout(self._layout)
+
+    def get_summand(self):
+        return self.summand.value()
+
+    def set_summand(self, summand):
+        self.summand.setValue(summand)
+
+    @property
+    def summand_changed(self):
+        return self.summand.valueChanged
+
+class MultiplyWidget(QGroupBox):
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self.factor = LabelledSlider("Factor")
+        self.factor.setMinimum(-8)
+        self.factor.setMaximum( 8)
+        self.factor.setValue(1)
+        self._layout.addWidget(self.factor)
+
+        self.setLayout(self._layout)
+
+    def get_factor(self):
+        return self.factor.value()
+
+    def set_factor(self, factor):
+        self.factor.setValue(factor)
+
+    @property
+    def factor_changed(self):
+        return self.factor.valueChanged
+
+class EqualsWidget(QGroupBox):
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self.comparison = LabelledSlider("Comparison")
+        self.comparison.setMinimum(-8)
+        self.comparison.setMaximum( 8)
+        self.comparison.setValue(1)
+        self._layout.addWidget(self.comparison)
+
+        self.setLayout(self._layout)
+
+    def get_comparison(self):
+        return self.comparison.value()
+
+    def set_comparison(self, comparison):
+        self.comparison.setValue(comparison)
+
+    @property
+    def comparison_changed(self):
+        return self.comparison.valueChanged
+
+class LessThanWidget(QGroupBox):
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self.threshold = LabelledSlider("Threshold")
+        self.threshold.setMinimum(-8)
+        self.threshold.setMaximum( 8)
+        self.threshold.setValue(1)
+        self._layout.addWidget(self.threshold)
+
+        self.setLayout(self._layout)
+
+    def get_threshold(self):
+        return self.threshold.value()
+
+    def set_threshold(self, threshold):
+        self.threshold.setValue(threshold)
+
+    @property
+    def threshold_changed(self):
+        return self.threshold.valueChanged
+
+class GreaterThanWidget(QGroupBox):
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self.threshold = LabelledSlider("Threshold")
+        self.threshold.setMinimum(-8)
+        self.threshold.setMaximum( 8)
+        self.threshold.setValue(1)
+        self._layout.addWidget(self.threshold)
+
+        self.setLayout(self._layout)
+
+    def get_threshold(self):
+        return self.threshold.value()
+
+    def set_threshold(self, threshold):
+        self.threshold.setValue(threshold)
+
+    @property
+    def threshold_changed(self):
+        return self.threshold.valueChanged
+
+class OrWidget(QGroupBox):
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self.setLayout(self._layout)
+
+class AndWidget(QGroupBox):
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self.setLayout(self._layout)
+
+class ColorSpaceTransformWidget(QGroupBox):
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self.setLayout(self._layout)
+
 class ViewerOutputWidget(QGroupBox):
     def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(title, parent=parent)
