@@ -1,11 +1,13 @@
 import os
 from math import floor
 from enum import Enum
+from skimage import color
 from typing import Tuple
 import rawpy
 import numpy as np
 import numpy.typing as npt
 from skimage.transform import resize
+from numba import njit, prange
 
 import PyOpenColorIO as OCIO
 
@@ -110,18 +112,20 @@ def white_balance(image: ImageLike, white_balance: Tuple[float, float, float]):
     """
     Balance image with given parameters
     """
-    image[:,:,0] *= white_balance[0]
-    image[:,:,1] *= white_balance[1]
-    image[:,:,2] *= white_balance[2]
+    return _white_balance_impl(image, np.array(white_balance, dtype=np.float32))
 
-    return image
+@njit(parallel=True)
+def _white_balance_impl(image: ImageLike, white_balance: npt.ArrayLike):
+    return image * white_balance
 
+@njit(parallel=True)
 def gamma(image: ImageLike, gamma: float):
     """
     Adjust image contrast curve with `gamma` exponent
     """
     return np.maximum(0, image) ** gamma
 
+@njit(parallel=True)
 def linear_contrast(image: ImageLike, lift: float, slope: float):
     """
     Adjust contrast linearly to parameters
@@ -140,21 +144,95 @@ def two_point_color_balance(image: ImageLike,
     shadows = np.array(shadow_balance, dtype=np.float32)
     highs = np.array(highlight_balance, dtype=np.float32)
 
-    shadow_pivot = 0.2
-    highlight_pivot = 0.8
+    # shadow_pivot = 0.2
+    # highlight_pivot = 0.8
 
-    base_len = highlight_pivot - shadow_pivot
-    high_low_diff = highs - shadows
+    # base_len = highlight_pivot - shadow_pivot
+    # high_low_diff = highs - shadow_pivot
 
-    slope = high_low_diff / base_len
-    return (image - shadow_pivot) * slope + shadows
+    # slope = high_low_diff / base_len
+    # return (image - shadow_pivot) * slope + shadows
+    return _two_point_color_balance_impl(image, shadows, highs)
 
+@njit(parallel=True)
+def _two_point_color_balance_impl(image: ImageLike,
+    shadow_balance: npt.ArrayLike, highlight_balance: npt.ArrayLike) -> ImageLike:
+    return (image + shadow_balance) * highlight_balance
+
+@njit(parallel=True)
 def invert(image: ImageLike):
     """
     Invert the given image
     """
 
     return 1 - image
+
+def interpolate_img(a: ImageLike, b: ImageLike, alpha: float) -> ImageLike:
+    """
+    Interpolates beween two images - an alpha of 0 yields image a, 1 yields b.
+    Alpha values > 1 or < 0 extrapolate.
+    """
+    return (1 - alpha) * a + alpha * b
+
+def saturation(image: ImageLike, saturation: float) -> ImageLike:
+    """
+    Adjust saturation by interpolation/extrapolation
+    """
+    bw = image.mean(axis=-1,keepdims=1)
+    bw = np.repeat(bw, 3, axis=2)
+
+    return interpolate_img(bw, image, saturation)
+
+@njit(parallel=True)
+def apply_color_transformation_matrix(image: ImageLike, mat: npt.ArrayLike):
+    """
+    Apply the color transformation matrix `mat`
+    """
+    for y in prange(image.shape[0]):
+        for x in prange(image.shape[1]):
+            image[y, x] = image[y, x] @ mat
+
+def matrix_sat(image: ImageLike, saturation: float) -> ImageLike:
+    """
+    Adjust saturation with a colour matrix transform
+    """
+    # per-channel weights
+    rwgt = 0.3086
+    gwgt = 0.6094
+    bwgt = 0.0820
+
+    # matrix coefficients
+    r_sat  = (1.0 - saturation) * rwgt + saturation
+    r_coef = (1.0 - saturation) * rwgt
+    g_sat  = (1.0 - saturation) * gwgt + saturation
+    g_coef = (1.0 - saturation) * gwgt
+    b_sat  = (1.0 - saturation) * bwgt + saturation
+    b_coef = (1.0 - saturation) * bwgt
+
+    mat = np.array((
+        (r_sat,  r_coef, r_coef),
+        (g_coef, g_sat,  g_coef),
+        (b_coef, b_coef, b_sat)
+    ), dtype=np.float32)
+
+    ret = image @ mat
+
+    return ret
+
+def hue_sat(image: ImageLike, hue: float, saturation: float):
+    """
+    Modify hues and saturation by first transforming to the HSV space,
+    multiplying the respective channels and then transforming back
+
+    .. note::
+        This method is relatively slow and will introduce some inaccuracies
+    """
+    hsv = color.rgb2hsv(image)
+
+    hsv[:, :, 0] += hue
+    hsv[:, :, 1] *= saturation
+
+    return color.hsv2rgb(hsv)
 
 ####################################################
 # COLOUR MANAGEMENT FUNCTIONS
@@ -178,7 +256,7 @@ def lin_to_display(image):
     Applies a scene-linear to display colour space transform to a copy of the
     image
     """
-    to_convert = image.copy()
+    to_convert = image.copy().astype(np.float32)
     ocio_cpu.applyRGB(to_convert)
 
     print(f"max: {np.max(to_convert)}")
@@ -189,15 +267,30 @@ def lin_to_display(image):
 srgb_processor = ocio_config.getProcessor(OCIO.ROLE_SCENE_LINEAR, "Output - sRGB")
 srgb_cpu = srgb_processor.getDefaultCPUProcessor()
 
-def lin_to_srgb(image):
-    to_convert = image.copy()
-    print(f"[[ BEFORE TRANSFORM ]] max: {np.max(to_convert)}")
-    print(f"[[ BEFORE TRANSFORM ]] min: {np.min(to_convert)}")
+def lin_to_srgb(image: ImageLike) -> ImageLike:
+    to_convert = image.copy().astype(np.float32)
+    # print(f"[[ BEFORE TRANSFORM ]] max: {np.max(to_convert)}")
+    # print(f"[[ BEFORE TRANSFORM ]] min: {np.min(to_convert)}")
 
     srgb_cpu.applyRGB(to_convert)
 
-    print(f"[[ AFTER TRANSFORM ]] max: {np.max(to_convert)}")
-    print(f"[[ AFTER TRANSFORM ]] min: {np.min(to_convert)}")
-    print(f"to_convert.dtype: {to_convert.dtype}")
+    # print(f"[[ AFTER TRANSFORM ]] max: {np.max(to_convert)}")
+    # print(f"[[ AFTER TRANSFORM ]] min: {np.min(to_convert)}")
+    # print(f"to_convert.dtype: {to_convert.dtype}")
 
     return to_convert
+
+class OCIO:
+    def __init__(self):
+        self.ocio_config = OCIO.GetCurrentConfig()
+
+    def set_transform(self, from_space: str, to_space: str):
+        self.processor = self.ocio_config.getProcessor(from_space, to_space)
+        self.cpu_processor = self.processor.getDefaultCPUProcessor()
+
+    def transform(self, image: ImageLike) -> ImageLike:
+        to_convert = image.copy().astype(np.float32)
+
+        self.cpu_processor.applyRGB(to_convert)
+
+        return to_convert

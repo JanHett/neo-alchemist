@@ -18,6 +18,7 @@ from .Nodes import \
     GreyBalanceNode, \
     TwoPointColorBalanceNode, \
     InvertNode, \
+    HueSatNode, \
     GammaNode, \
     ContrastNode, \
     EstimateColorBalanceNode, \
@@ -52,6 +53,7 @@ class MainWindow(QMainWindow):
             GreyBalanceNode,
             TwoPointColorBalanceNode,
             InvertNode,
+            HueSatNode,
             GammaNode,
             ContrastNode,
             EstimateColorBalanceNode,

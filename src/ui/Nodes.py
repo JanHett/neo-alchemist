@@ -11,13 +11,13 @@ import rawpy
 import OpenImageIO as oiio
 import lcms
 
-from ..processing.spells import ImageFit, ImageLike, fit_image, gamma, invert, lin_to_srgb, linear_contrast, two_point_color_balance, white_balance
+from ..processing.spells import ImageFit, ImageLike, fit_image, gamma, hue_sat, invert, lin_to_srgb, linear_contrast, matrix_sat, saturation, two_point_color_balance, white_balance
 
 from .Widgets import AddWidget, AndWidget, ColorBalanceWidget, ColorSpaceTransformWidget, ContrastWidget, \
     CropWidget, EqualsWidget, \
     EstimateColorBalanceWidget, \
     FileOutputWidget, \
-    GammaWidget, GreaterThanWidget, ImageRenderer, \
+    GammaWidget, GreaterThanWidget, HueSatWidget, ImageRenderer, \
     InvertWidget, LessThanWidget, MultiplyWidget, OrWidget, \
     PerChannelAverageWidget, \
     RawFileInputWidget, SolidWidget, \
@@ -88,14 +88,15 @@ def get_roi(img: ImageLike, roi: ROI) -> ImageLike:
     """
     if 0 in roi.resolution:
         resolution = img.shape[:2]
+        resolution = (resolution[1], resolution[0])
     else:
         resolution = roi.resolution
 
     y, x = np.floor(
-        img.shape[:1] * np.array((roi.position[1], roi.position[0]))
+        img.shape[:2] * np.array((roi.position[1], roi.position[0]))
     ).astype(int)
     h, w = np.floor(
-        img.shape[:1] * np.array((roi.size[1], roi.size[0]))
+        img.shape[:2] * np.array((roi.size[1], roi.size[0]))
     ).astype(int)
 
     sub_img = img[y:y+h, x:x+w]
@@ -389,7 +390,7 @@ class FileOutputNode(NeoAlchemistNode):
 
     def _process(self):
         img = self.in_value("Image").get(ROI())
-        pixformat = "uint8" # 'uint16' is TODO
+        pixformat = "uint16" # or "uint8"
 
         # Convert from linear ACES to sRGB (others are TODO)
         # dtype = np.uint16 if pixformat == "uint16" else np.uint8
@@ -400,10 +401,10 @@ class FileOutputNode(NeoAlchemistNode):
         # srgb_profile_path = os.path.join(this_dir, "../../external/elles_icc_profiles/profiles/sRGB-elle-V2-srgbtrc.icc")
         # srgb_pixels = lcms.apply_profile(formatted_pixels, aces_profile_path, srgb_profile_path)
         
-        srgb_pixels = lin_to_srgb(img)
+        # srgb_pixels = lin_to_srgb(img)
         dtype = np.uint16 if pixformat == "uint16" else np.uint8
         max_val = np.iinfo(dtype).max
-        srgb_pixels = (srgb_pixels.clip(0, 1) * max_val).astype(dtype)
+        srgb_pixels = (img.clip(0, 1) * max_val).astype(dtype)
 
         filename = self.get_property("filename")
         output = oiio.ImageOutput.create(filename)
@@ -495,13 +496,31 @@ class ColorSpaceTransformNode(NeoAlchemistNode):
     def _handle_request_image_data(self, roi: ROI):
         in_img = self.in_value("Image").get(roi)
 
-        # Convert from linear ACES to sRGB (others are TODO)
-        # this_dir = os.path.abspath(os.path.dirname(__file__))
-        # aces_profile_path = os.path.join(this_dir, "../../external/elles_icc_profiles/profiles/ACES-elle-V2-g10.icc")
-        # srgb_profile_path = os.path.join(this_dir, "../../external/elles_icc_profiles/profiles/sRGB-elle-V2-srgbtrc.icc")
-        # srgb_pixels = lcms.apply_profile(in_img, aces_profile_path, srgb_profile_path)
-
         srgb_pixels = lin_to_srgb(in_img)
+
+        return srgb_pixels
+
+class ComvertICCProfileNode(NeoAlchemistNode):
+    NODE_NAME = "Convert ICC Profile"
+
+    def __init__(self):
+        super().__init__()
+
+        self.define_input("Image")
+        self.define_output("Image", ImageCache(self._handle_request_image_data))
+
+        self._properties_widget = ComvertICCProfileWidget(self.NODE_NAME)
+
+    def _handle_request_image_data(self, roi: ROI):
+        in_img = self.in_value("Image").get(roi)
+
+        # Convert from linear ACES to sRGB (others are TODO)
+        this_dir = os.path.abspath(os.path.dirname(__file__))
+        aces_profile_path = os.path.join(this_dir, "../../external/elles_icc_profiles/profiles/ACES-elle-V2-g10.icc")
+        srgb_profile_path = os.path.join(this_dir, "../../external/elles_icc_profiles/profiles/sRGB-elle-V2-srgbtrc.icc")
+        srgb_pixels = lcms.apply_profile(in_img, aces_profile_path, srgb_profile_path)
+
+        # srgb_pixels = lin_to_srgb(in_img)
 
         return srgb_pixels
 
@@ -547,46 +566,28 @@ class CropNode(NeoAlchemistNode):
     def _handle_request_image_data(self):
         return self._cache
 
-# TODO
 class GreyBalanceNode(NeoAlchemistNode):
     NODE_NAME = "Grey Balance"
     def __init__(self):
         super().__init__()
 
-        self.add_input("Image")
-        image_out = self.add_output("Image")
-        image_out.request_data = self._handle_request_image_data
+        self.define_input("Image")
+        image_out = self.define_output("Image", ImageCache(self._handle_request_image_data))
 
         self._properties_widget = ColorBalanceWidget(self.NODE_NAME)
 
-        self.reactive_property("red", 1,
-            self._properties_widget.red.value,
-            self._properties_widget.red.setValue,
-            self._properties_widget.red.valueChanged)
-        self.reactive_property("green", 1,
-            self._properties_widget.green.value,
-            self._properties_widget.green.setValue,
-            self._properties_widget.green.valueChanged)
-        self.reactive_property("blue", 1,
-            self._properties_widget.blue.value,
-            self._properties_widget.blue.setValue,
-            self._properties_widget.blue.valueChanged)
-
-    def run(self):
-        in_img = request_data(self.get_input("Image"))
-        self._cache = white_balance(in_img, self.grey_balance)
-        self.update_stream()
+        self.reactive_property("coefficients", (1, 1, 1),
+            self._properties_widget.color.value,
+            self._properties_widget.color.setValue,
+            self._properties_widget.color.color_changed)
 
     @property
     def grey_balance(self):
-        return (
-            self.get_property("red"),
-            self.get_property("green"),
-            self.get_property("blue")
-        )
+        return self.get_property("coefficients")
 
-    def _handle_request_image_data(self):
-        return self._cache
+    def _handle_request_image_data(self, roi: ROI):
+        in_img = self.in_value("Image").get(roi)
+        return white_balance(in_img, self.grey_balance)
 
 class TwoPointColorBalanceNode(NeoAlchemistNode):
     NODE_NAME = "Two-Point Color Balance"
@@ -601,12 +602,12 @@ class TwoPointColorBalanceNode(NeoAlchemistNode):
 
         self._properties_widget = TwoPointColorBalanceWidget(self.NODE_NAME)
 
-        self.reactive_property("shadow_balance", 0.2,
+        self.reactive_property("shadow_balance", 0.0,
             self._properties_widget.shadow_balance.value,
             self._properties_widget.shadow_balance.setValue,
             self._properties_widget.shadow_balance.color_changed)
 
-        self.reactive_property("highlight_balance", 0.8,
+        self.reactive_property("highlight_balance", 1.0,
             self._properties_widget.highlight_balance.value,
             self._properties_widget.highlight_balance.setValue,
             self._properties_widget.highlight_balance.color_changed)
@@ -617,7 +618,7 @@ class TwoPointColorBalanceNode(NeoAlchemistNode):
 
     @property
     def shadow_balance(self):
-        base = np.array((0, 0, 0))
+        base = np.array((0, 0, 0), dtype=np.float32)
         if self.is_input_connected("Shadow Sample"):
             base = self.in_value("Shadow Sample")
 
@@ -627,7 +628,7 @@ class TwoPointColorBalanceNode(NeoAlchemistNode):
 
     @property
     def highlight_balance(self):
-        base = np.array((0, 0, 0))
+        base = np.array((0, 0, 0), dtype=np.float32)
         if self.is_input_connected("Highlight Sample"):
             base = self.in_value("Highlight Sample")
 
@@ -665,6 +666,33 @@ class InvertNode(NeoAlchemistNode):
     def _handle_request_image_data(self, roi: ROI):
         return invert(self.in_value("Image").get(roi))
 
+class HueSatNode(NeoAlchemistNode):
+    NODE_NAME = "Hue/Saturation"
+
+    def __init__(self):
+        super().__init__()
+
+        self.define_input("Image")
+        self.define_output("Image", ImageCache(self._handle_request_image_data))
+
+        self._properties_widget = HueSatWidget(self.NODE_NAME)
+
+        self.reactive_property("hue", 0,
+            self._properties_widget.hue,
+            self._properties_widget.set_hue,
+            self._properties_widget.hue_changed)
+
+        self.reactive_property("saturation", 1,
+            self._properties_widget.saturation,
+            self._properties_widget.set_saturation,
+            self._properties_widget.saturation_changed)
+
+    def _handle_request_image_data(self, roi: ROI):
+        in_img = self.in_value("Image").get(roi)
+        # return matrix_sat(in_img, self.get_property("saturation"))
+        # return saturation(in_img, self.get_property("saturation"))
+        return hue_sat(in_img, self.get_property("hue"), self.get_property("saturation"))
+
 class GammaNode(NeoAlchemistNode):
     NODE_NAME = "Gamma"
 
@@ -701,7 +729,7 @@ class ContrastNode(NeoAlchemistNode):
             self._properties_widget.set_contrast,
             self._properties_widget.contrast_changed)
 
-        self.reactive_property("lift", 1,
+        self.reactive_property("lift", 0,
             self._properties_widget.lift,
             self._properties_widget.set_lift,
             self._properties_widget.lift_changed)

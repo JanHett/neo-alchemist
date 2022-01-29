@@ -255,8 +255,8 @@ class ColorBalanceWidget(QGroupBox):
         self._layout.setAlignment(Qt.AlignTop)
 
         self.color = ColorPicker(self)
-        self.color.setMinimum(0.8)
-        self.color.setMaximum(1.2)
+        self.color.setMinimum(0.4)
+        self.color.setMaximum(1.1)
         self.color.setValue(1)
         self._layout.addWidget(self.color)
 
@@ -274,15 +274,15 @@ class TwoPointColorBalanceWidget(QGroupBox):
 
         self._shadow_label = QLabel("Shadow Balance", self)
         self.shadow_balance = ColorPicker(self)
-        self.shadow_balance.setMinimum(0)
-        self.shadow_balance.setMaximum(1)
-        self.shadow_balance.setValue(0.2)
+        self.shadow_balance.setMinimum(-0.3)
+        self.shadow_balance.setMaximum(.3)
+        self.shadow_balance.setValue(0)
 
         self._highlight_label = QLabel("Highlight Balance", self)
         self.highlight_balance = ColorPicker(self)
-        self.highlight_balance.setMinimum(0)
-        self.highlight_balance.setMaximum(1)
-        self.highlight_balance.setValue(0.8)
+        self.highlight_balance.setMinimum(0.7)
+        self.highlight_balance.setMaximum(1.3)
+        self.highlight_balance.setValue(1)
 
         self._layout.addWidget(self._shadow_label)
         self._layout.addWidget(self.shadow_balance)
@@ -314,6 +314,47 @@ class InvertWidget(QGroupBox):
         self._layout.addWidget(self.activated)
 
         self.setLayout(self._layout)
+
+class HueSatWidget(QGroupBox):
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self._hue = LabelledSlider("Hue", self)
+        self._hue.setMinimum(-2)
+        self._hue.setMaximum( 2)
+        self._hue.setValue(0)
+        self._layout.addWidget(self._hue)
+
+        self._saturation = LabelledSlider("Saturation", self)
+        self._saturation.setMinimum(0)
+        self._saturation.setMaximum(2)
+        self._saturation.setValue(1)
+        self._layout.addWidget(self._saturation)
+
+        self.setLayout(self._layout)
+
+    def hue(self):
+        return self._hue.value()
+
+    def set_hue(self, value):
+        return self._hue.setValue(value)
+
+    @property
+    def hue_changed(self):
+        return self._hue.valueChanged
+
+    def saturation(self):
+        return self._saturation.value()
+
+    def set_saturation(self, value):
+        return self._saturation.setValue(value)
+
+    @property
+    def saturation_changed(self):
+        return self._saturation.valueChanged
 
 class GammaWidget(QGroupBox):
     def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
@@ -440,8 +481,8 @@ class MultiplyWidget(QGroupBox):
         self._layout.setAlignment(Qt.AlignTop)
 
         self.factor = LabelledSlider("Factor")
-        self.factor.setMinimum(-8)
-        self.factor.setMaximum( 8)
+        self.factor.setMinimum(-1)
+        self.factor.setMaximum(16)
         self.factor.setValue(1)
         self._layout.addWidget(self.factor)
 
