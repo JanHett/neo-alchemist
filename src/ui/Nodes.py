@@ -11,7 +11,18 @@ import rawpy
 import OpenImageIO as oiio
 import lcms
 
-from ..processing.spells import ImageFit, ImageLike, fit_image, gamma, hue_sat, invert, lin_to_srgb, global_ocio, linear_contrast, matrix_sat, saturation, two_point_color_balance, white_balance
+from ..processing.spells import ImageFit, \
+    ImageLike, \
+    fit_image, \
+    gamma, \
+    hue_sat, \
+    invert, \
+    global_ocio, \
+    linear_contrast, \
+    matrix_sat, \
+    saturation, \
+    two_point_color_balance, \
+    white_balance
 
 from .Widgets import AddWidget, AndWidget, ColorBalanceWidget, ColorSpaceTransformWidget, ContrastWidget, \
     CropWidget, EqualsWidget, \
@@ -712,6 +723,26 @@ class HueSatNode(NeoAlchemistNode):
         # return matrix_sat(in_img, self.get_property("saturation"))
         # return saturation(in_img, self.get_property("saturation"))
         return hue_sat(in_img, self.get_property("hue"), self.get_property("saturation"))
+
+class SaturationNode(NeoAlchemistNode):
+    NODE_NAME = "Saturation"
+
+    def __init__(self):
+        super().__init__()
+
+        self.define_input("Image")
+        self.define_output("Image", ImageCache(self._handle_request_image_data))
+
+        self._properties_widget = SaturationWidget(self.NODE_NAME)
+
+        self.reactive_property("saturation", 1,
+            self._properties_widget.saturation,
+            self._properties_widget.set_saturation,
+            self._properties_widget.saturation_changed)
+
+    def _handle_request_image_data(self, roi: ROI):
+        in_img = self.in_value("Image").get(roi)
+        return saturation(in_img, self.get_property("saturation"))
 
 class GammaNode(NeoAlchemistNode):
     NODE_NAME = "Gamma"

@@ -369,6 +369,31 @@ class HueSatWidget(QGroupBox):
     def saturation_changed(self):
         return self._saturation.valueChanged
 
+class SaturationWidget(QGroupBox):
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self._saturation = LabelledSlider("Saturation", self)
+        self._saturation.setMinimum(0)
+        self._saturation.setMaximum(2)
+        self._saturation.setValue(1)
+        self._layout.addWidget(self._saturation)
+
+        self.setLayout(self._layout)
+
+    def saturation(self):
+        return self._saturation.value()
+
+    def set_saturation(self, value):
+        return self._saturation.setValue(value)
+
+    @property
+    def saturation_changed(self):
+        return self._saturation.valueChanged
+
 class GammaWidget(QGroupBox):
     def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(title, parent=parent)
