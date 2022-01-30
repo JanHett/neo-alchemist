@@ -1,6 +1,19 @@
 from typing import Literal, Optional, Union
 from PySide2.QtCore import QRect, Qt, Signal
-from PySide2.QtWidgets import QCheckBox, QDockWidget, QFileDialog, QGridLayout, QGroupBox, QLabel, QOpenGLWidget, QPushButton, QSlider, QDoubleSpinBox, QSpinBox, QVBoxLayout, QWidget
+from PySide2.QtWidgets import QCheckBox, \
+    QDockWidget, \
+    QFileDialog, \
+    QGridLayout, \
+    QGroupBox, \
+    QLabel, \
+    QOpenGLWidget, \
+    QPushButton, \
+    QSlider, \
+    QDoubleSpinBox, \
+    QSpinBox, \
+    QComboBox, \
+    QVBoxLayout, \
+    QWidget
 # from PySide2.QtOpenGLWidgets import QOpenGLWidget
 from PySide2.QtGui import QColor, QImage, QPaintEvent, QPainter
 from superqt import QRangeSlider, QDoubleSlider
@@ -592,13 +605,49 @@ class AndWidget(QGroupBox):
         self.setLayout(self._layout)
 
 class ColorSpaceTransformWidget(QGroupBox):
-    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, title: str, colorspaces: list[str], parent: Optional[QWidget] = None) -> None:
         super().__init__(title, parent=parent)
 
         self._layout = QVBoxLayout(self)
         self._layout.setAlignment(Qt.AlignTop)
 
+        self.from_space_label = QLabel("From:")
+        self._layout.addWidget(self.from_space_label)
+
+        self.from_space = QComboBox(self)
+        self.from_space.setInsertPolicy(QComboBox.NoInsert)
+        self.from_space.addItems(colorspaces)
+        self._layout.addWidget(self.from_space)
+
+        self.to_space_label = QLabel("To:")
+        self._layout.addWidget(self.to_space_label)
+
+        self.to_space = QComboBox(self)
+        self.to_space.setInsertPolicy(QComboBox.NoInsert)
+        self.to_space.addItems(colorspaces)
+        self._layout.addWidget(self.to_space)
+
         self.setLayout(self._layout)
+
+    def get_from_space(self):
+        return self.from_space.currentText()
+
+    def set_from_space(self, value):
+        self.from_space.setCurrentText(value)
+
+    @property
+    def from_space_changed(self):
+        return self.from_space.currentTextChanged
+
+    def get_to_space(self):
+        return self.to_space.currentText()
+
+    def set_to_space(self, value):
+        self.to_space.setCurrentText(value)
+
+    @property
+    def to_space_changed(self):
+        return self.to_space.currentTextChanged
 
 class ViewerOutputWidget(QGroupBox):
     def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:

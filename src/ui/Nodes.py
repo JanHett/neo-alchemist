@@ -11,7 +11,7 @@ import rawpy
 import OpenImageIO as oiio
 import lcms
 
-from ..processing.spells import ImageFit, ImageLike, fit_image, gamma, hue_sat, invert, lin_to_srgb, linear_contrast, matrix_sat, saturation, two_point_color_balance, white_balance
+from ..processing.spells import ImageFit, ImageLike, fit_image, gamma, hue_sat, invert, lin_to_srgb, global_ocio, linear_contrast, matrix_sat, saturation, two_point_color_balance, white_balance
 
 from .Widgets import AddWidget, AndWidget, ColorBalanceWidget, ColorSpaceTransformWidget, ContrastWidget, \
     CropWidget, EqualsWidget, \
@@ -20,7 +20,7 @@ from .Widgets import AddWidget, AndWidget, ColorBalanceWidget, ColorSpaceTransfo
     GammaWidget, GreaterThanWidget, HueSatWidget, ImageRenderer, \
     InvertWidget, LessThanWidget, MultiplyWidget, OrWidget, \
     PerChannelAverageWidget, \
-    RawFileInputWidget, SolidWidget, \
+    RawFileInputWidget, SaturationWidget, SolidWidget, \
     TwoPointColorBalanceWidget, \
     ViewerOutputWidget
 
@@ -360,12 +360,20 @@ class RawFileInputNode(NeoAlchemistNode):
         self._pixels = np.array(self._raw_data.postprocess(
             # TODO: make this conditional on user input or read full size lazily
             half_size=True,
-            output_color=rawpy.ColorSpace.raw,
+            # output_color=rawpy.ColorSpace.raw,
+            output_color=rawpy.ColorSpace.ProPhoto,
             output_bps=16,
             gamma=(1, 1),
             user_wb=[1.0, 1.0, 1.0, 1.0],
             no_auto_bright=True
             ), dtype=np.float32) / np.iinfo(np.uint16).max
+
+        proc = global_ocio.get_processor("Utility - Linear - RIMM ROMM (ProPhoto)",
+            "Role - scene_linear")
+
+        proc.applyRGB(self._pixels)
+
+        # self._pixels = self._pixels ** 0.555555
 
     @property
     def filename(self) -> str:
@@ -481,7 +489,6 @@ def curry_ViewerOutputNode(viewer: ImageRenderer):
 
     return ViewerOutputNode
 
-# TODO: more customisable transform
 class ColorSpaceTransformNode(NeoAlchemistNode):
     NODE_NAME = "Color Space Transform"
 
@@ -491,14 +498,27 @@ class ColorSpaceTransformNode(NeoAlchemistNode):
         self.define_input("Image")
         self.define_output("Image", ImageCache(self._handle_request_image_data))
 
-        self._properties_widget = ColorSpaceTransformWidget(self.NODE_NAME)
+        self._properties_widget = ColorSpaceTransformWidget(self.NODE_NAME, global_ocio.get_colorspaces())
+
+        self.reactive_property("from_space", "default",
+            self._properties_widget.get_from_space,
+            self._properties_widget.set_from_space,
+            self._properties_widget.from_space_changed)
+
+        self.reactive_property("to_space", "default",
+            self._properties_widget.get_to_space,
+            self._properties_widget.set_to_space,
+            self._properties_widget.to_space_changed)
 
     def _handle_request_image_data(self, roi: ROI):
-        in_img = self.in_value("Image").get(roi)
+        in_img = self.in_value("Image").get(roi).copy().astype(np.float32)
 
-        srgb_pixels = lin_to_srgb(in_img)
+        proc = global_ocio.get_processor(self.get_property("from_space"),
+            self.get_property("to_space"))
 
-        return srgb_pixels
+        proc.applyRGB(in_img)
+
+        return in_img
 
 class ComvertICCProfileNode(NeoAlchemistNode):
     NODE_NAME = "Convert ICC Profile"

@@ -240,57 +240,19 @@ def hue_sat(image: ImageLike, hue: float, saturation: float):
 
 print("OCIO env variable:", os.environ["OCIO"])
 
-ocio_config = OCIO.GetCurrentConfig()
-
-ocio_display = ocio_config.getDefaultDisplay()
-ocio_view = ocio_config.getDefaultView(ocio_display)
-ocio_processor = ocio_config.getProcessor(
-    OCIO.ROLE_SCENE_LINEAR,
-    ocio_display,
-    ocio_view,
-    OCIO.TRANSFORM_DIR_FORWARD)
-ocio_cpu = ocio_processor.getDefaultCPUProcessor()
-
-def lin_to_display(image):
-    """
-    Applies a scene-linear to display colour space transform to a copy of the
-    image
-    """
-    to_convert = image.copy().astype(np.float32)
-    ocio_cpu.applyRGB(to_convert)
-
-    print(f"max: {np.max(to_convert)}")
-    print(f"min: {np.min(to_convert)}")
-
-    return to_convert
-
-srgb_processor = ocio_config.getProcessor(OCIO.ROLE_SCENE_LINEAR, "Output - sRGB")
-srgb_cpu = srgb_processor.getDefaultCPUProcessor()
-
-def lin_to_srgb(image: ImageLike) -> ImageLike:
-    to_convert = image.copy().astype(np.float32)
-    # print(f"[[ BEFORE TRANSFORM ]] max: {np.max(to_convert)}")
-    # print(f"[[ BEFORE TRANSFORM ]] min: {np.min(to_convert)}")
-
-    srgb_cpu.applyRGB(to_convert)
-
-    # print(f"[[ AFTER TRANSFORM ]] max: {np.max(to_convert)}")
-    # print(f"[[ AFTER TRANSFORM ]] min: {np.min(to_convert)}")
-    # print(f"to_convert.dtype: {to_convert.dtype}")
-
-    return to_convert
-
-class OCIO:
+class OCIOManager:
     def __init__(self):
         self.ocio_config = OCIO.GetCurrentConfig()
 
-    def set_transform(self, from_space: str, to_space: str):
-        self.processor = self.ocio_config.getProcessor(from_space, to_space)
-        self.cpu_processor = self.processor.getDefaultCPUProcessor()
+    def get_processor(self, from_space: str, to_space: str):
+        proc = self.ocio_config.getProcessor(from_space, to_space)
+        return proc.getDefaultCPUProcessor()
 
-    def transform(self, image: ImageLike) -> ImageLike:
-        to_convert = image.copy().astype(np.float32)
+    def get_colorspaces(self):
+        spaces = self.ocio_config.getColorSpaces()
 
-        self.cpu_processor.applyRGB(to_convert)
+        space_names = [s.getName() for s in spaces]
 
-        return to_convert
+        return space_names
+
+global_ocio = OCIOManager()
