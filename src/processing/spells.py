@@ -159,6 +159,12 @@ def _two_point_color_balance_impl(image: ImageLike,
     shadow_balance: npt.ArrayLike, highlight_balance: npt.ArrayLike) -> ImageLike:
     return (image + shadow_balance) * highlight_balance
 
+def cdl(image: ImageLike,
+    slope: npt.ArrayLike,
+    offset: npt.ArrayLike,
+    power: npt.ArrayLike) -> ImageLike:
+    return (image * slope + offset) ** power
+
 @njit(parallel=True)
 def invert(image: ImageLike):
     """

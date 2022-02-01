@@ -12,7 +12,7 @@ import OpenImageIO as oiio
 import lcms
 
 from ..processing.spells import ImageFit, \
-    ImageLike, \
+    ImageLike, cdl, \
     fit_image, \
     gamma, \
     hue_sat, \
@@ -24,16 +24,18 @@ from ..processing.spells import ImageFit, \
     two_point_color_balance, \
     white_balance
 
-from .Widgets import AddWidget, AndWidget, ColorBalanceWidget, ColorSpaceTransformWidget, ContrastWidget, \
+from .widgets.PropertiesWidgets import AddWidget, AndWidget, CDLWidget, ColorBalanceWidget, ColorSpaceTransformWidget, ContrastWidget, \
     CropWidget, EqualsWidget, \
     EstimateColorBalanceWidget, \
     FileOutputWidget, \
-    GammaWidget, GreaterThanWidget, HueSatWidget, ImageRenderer, \
+    GammaWidget, GreaterThanWidget, HueSatWidget, \
     InvertWidget, LessThanWidget, MultiplyWidget, OrWidget, \
     PerChannelAverageWidget, \
     RawFileInputWidget, SaturationWidget, SolidWidget, \
     TwoPointColorBalanceWidget, \
     ViewerOutputWidget
+
+from .widgets.Atoms import ImageRenderer
 
 ORG_IDENTIFIER = "engineering.brotzeit"
 
@@ -372,7 +374,8 @@ class RawFileInputNode(NeoAlchemistNode):
             # TODO: make this conditional on user input or read full size lazily
             half_size=True,
             # output_color=rawpy.ColorSpace.raw,
-            output_color=rawpy.ColorSpace.ProPhoto,
+            # output_color=rawpy.ColorSpace.ProPhoto,
+            output_color=rawpy.ColorSpace.XYZ,
             output_bps=16,
             gamma=(1, 1),
             user_wb=[1.0, 1.0, 1.0, 1.0],
@@ -644,6 +647,7 @@ class TwoPointColorBalanceNode(NeoAlchemistNode):
             self._properties_widget.highlight_balance.color_changed)
 
     def _handle_request_image_data(self, roi: ROI):
+        self._properties_widget.balance_control.update()
         return two_point_color_balance(self.in_value("Image").get(roi),
             self.shadow_balance, self.highlight_balance)
 
@@ -678,6 +682,49 @@ class TwoPointColorBalanceNode(NeoAlchemistNode):
         # self.set_property("shadow_balance", old_shadow_balance)
         # self.set_property("highlight_balance", old_highlight_balance)
         return super().on_input_disconnected(in_port, out_port)
+
+class CDLNode(NeoAlchemistNode):
+    NODE_NAME = "CDL (ASC Colour Decision List)"
+
+    def __init__(self):
+        super().__init__()
+
+        self.define_input("Image")
+        self.define_output("Image", ImageCache(self._handle_request_image_data))
+
+        self._properties_widget = CDLWidget(self.NODE_NAME)
+
+        self.reactive_property("slope", np.array((1, 1, 1)),
+            self._properties_widget.get_slope,
+            self._properties_widget.set_slope,
+            self._properties_widget.slope_changed)
+
+        self.reactive_property("offset", np.array((0, 0, 0)),
+            self._properties_widget.get_offset,
+            self._properties_widget.set_offset,
+            self._properties_widget.offset_changed)
+
+        self.reactive_property("power", np.array((1, 1, 1)),
+            self._properties_widget.get_power,
+            self._properties_widget.set_power,
+            self._properties_widget.power_changed)
+
+    def _handle_request_image_data(self, roi: ROI):
+        self._properties_widget.balance_control.update()
+        return cdl(self.in_value("Image").get(roi),
+            self.slope, self.offset, self.power)
+
+    @property
+    def slope(self):
+        return self.get_property("slope")
+
+    @property
+    def offset(self):
+        return self.get_property("offset")
+
+    @property
+    def power(self):
+        return self.get_property("power")
 
 class InvertNode(NeoAlchemistNode):
     NODE_NAME = "Invert"

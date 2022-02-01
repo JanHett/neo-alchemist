@@ -15,6 +15,7 @@ nodegraphqt = {editable = true, ref = "callbacks_during_deserialization", git = 
 scikit-image = {extras = ["optional"], version = "*"}
 lcms = "*"
 numba = "*"
+colorio = "*"
 
 [dev-packages]
 mypy = "*"

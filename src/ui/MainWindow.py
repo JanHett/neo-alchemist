@@ -7,7 +7,7 @@ from PySide2.QtWidgets import QDockWidget, QMainWindow
 
 from NodeGraphQt import NodeGraph, Port, BackdropNode, setup_context_menu
 
-from .Widgets import ViewerWidget
+from .widgets.Atoms import ViewerWidget
 from .Nodes import \
     SolidNode, \
     RawFileInputNode, \
@@ -17,6 +17,7 @@ from .Nodes import \
     CropNode, \
     GreyBalanceNode, \
     TwoPointColorBalanceNode, \
+    CDLNode, \
     InvertNode, \
     HueSatNode, \
     SaturationNode, \
@@ -53,6 +54,7 @@ class MainWindow(QMainWindow):
             CropNode,
             GreyBalanceNode,
             TwoPointColorBalanceNode,
+            CDLNode,
             InvertNode,
             HueSatNode,
             SaturationNode,

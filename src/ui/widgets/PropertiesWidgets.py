@@ -1,86 +1,20 @@
-from typing import Literal, Optional, Union
-from PySide2.QtCore import QRect, Qt, Signal
+from typing import Optional
+from PySide2.QtCore import Qt, Signal
 from PySide2.QtWidgets import QCheckBox, \
-    QDockWidget, \
     QFileDialog, \
-    QGridLayout, \
     QGroupBox, \
     QLabel, \
-    QOpenGLWidget, \
     QPushButton, \
-    QSlider, \
-    QDoubleSpinBox, \
     QSpinBox, \
     QComboBox, \
     QVBoxLayout, \
     QWidget
-# from PySide2.QtOpenGLWidgets import QOpenGLWidget
-from PySide2.QtGui import QColor, QImage, QPaintEvent, QPainter
-from superqt import QRangeSlider, QDoubleSlider
 
-import numpy as np
 import numpy.typing as npt
 
-from ..processing.spells import ImageLike, Color
+from .Atoms import ColorBalanceControl, ColorPicker, LabelledSlider
 
-class LabelledSlider(QWidget):
-    def __init__(self, label: str, parent: Optional[QWidget] = None, f: Qt.WindowFlags = Qt.WindowFlags()) -> None:
-        super().__init__(parent=parent, f=f)
-
-        self.label = QLabel(label, self)
-        self.spinbox = QDoubleSpinBox(self)
-        self.spinbox.setStepType(QDoubleSpinBox.AdaptiveDecimalStepType)
-        self.spinbox.setDecimals(4)
-        self.slider = QDoubleSlider(Qt.Horizontal, self)
-
-        self.slider.valueChanged.connect(self._update_spinbox)
-        self.spinbox.editingFinished.connect(self._update_slider)
-
-        self._layout = QGridLayout(self)
-        self._layout.setColumnStretch(0, 2)
-        self._layout.setColumnStretch(1, 1)
-        self._layout.addWidget(self.label, 0, 0)
-        self._layout.addWidget(self.spinbox, 0, 1)
-        self._layout.addWidget(self.slider, 1, 0, 1, 2)
-
-        self.setLayout(self._layout)
-
-        self.valueChanged = self.slider.valueChanged
-
-    def _update_spinbox(self):
-        self.spinbox.setValue(self.slider.value())
-
-    def _update_slider(self):
-        self.slider.setValue(self.spinbox.value())
-
-    def setValue(self, v: float) -> None:
-        self.slider.setValue(v)
-        self.spinbox.setValue(v)
-
-    def setMaximum(self, v: float) -> None:
-        self.slider.setMaximum(v)
-        self.spinbox.setMaximum(v)
-
-    def setMinimum(self, v: float) -> None:
-        self.slider.setMinimum(v)
-        self.spinbox.setMinimum(v)
-
-    def value(self) -> float:
-        return self.slider.value()
-
-class ViewerWidget(QWidget):
-    def __init__(self,
-        parent: Optional[QWidget] = None, f: Qt.WindowFlags = Qt.WindowFlags()) -> None:
-        super().__init__(parent, f)
-
-        self._layout = QVBoxLayout(self)
-        self._renderer = ImageRenderer(np.zeros((1,1,3), dtype=np.float32))
-        self._layout.addWidget(self._renderer)
-        self.setLayout(self._layout)
-
-    @property
-    def image_renderer(self):
-        return self._renderer
+from ...processing.spells import Color
 
 class SolidWidget(QGroupBox):
 
@@ -180,83 +114,6 @@ class FileOutputWidget(FileIOWidget):
         self.filename = QFileDialog.getSaveFileName(self,
             "Save File", "/", self.name_filter)[0]
 
-class ColorPicker(QWidget):
-    """
-    A general purpose color picker
-    """
-
-    color_changed = Signal(tuple)
-
-    def __init__(self, parent: Optional[QWidget] = None, f: Qt.WindowFlags = Qt.WindowFlags()) -> None:
-        super().__init__(parent, f)
-
-        self._layout = QVBoxLayout(self)
-        self._layout.setAlignment(Qt.AlignTop)
-
-        self.red = LabelledSlider("Red", self)
-        self.green = LabelledSlider("Green", self)
-        self.blue = LabelledSlider("Blue", self)
-
-        self.setMinimum(0)
-        self.setMaximum(1)
-        self.setValue(1)
-
-        self.red.valueChanged.connect(self._emit_color_changed)
-        self.green.valueChanged.connect(self._emit_color_changed)
-        self.blue.valueChanged.connect(self._emit_color_changed)
-
-        self._layout.addWidget(self.red)
-        self._layout.addWidget(self.green)
-        self._layout.addWidget(self.blue)
-
-        self.setLayout(self._layout)
-
-    def setMinimum(self, value: Union[Color, float]) -> None:
-        """
-        Set minimum for all channels
-
-        If a `Color` is provided, its channels are taken to refer to RGB values
-        """
-        try:
-            self.red.setMinimum(value[0])
-            self.green.setMinimum(value[1])
-            self.blue.setMinimum(value[2])
-        except TypeError:
-            self.red.setMinimum(value)
-            self.green.setMinimum(value)
-            self.blue.setMinimum(value)
-
-    def setMaximum(self, value: Union[Color, float]) -> None:
-        """
-        Set maximum for all channels
-
-        If a `Color` is provided, its channels are taken to refer to RGB values
-        """
-        try:
-            self.red.setMaximum(value[0])
-            self.green.setMaximum(value[1])
-            self.blue.setMaximum(value[2])
-        except TypeError:
-            self.red.setMaximum(value)
-            self.green.setMaximum(value)
-            self.blue.setMaximum(value)
-
-    def setValue(self, value: Union[Color, float]) -> None:
-        try:
-            self.red.setValue(value[0])
-            self.green.setValue(value[1])
-            self.blue.setValue(value[2])
-        except TypeError:
-            self.red.setValue(value)
-            self.green.setValue(value)
-            self.blue.setValue(value)
-
-    def value(self) -> Color:
-        return (self.red.value(), self.green.value(), self.blue.value())
-
-    def _emit_color_changed(self, _):
-        self.color_changed.emit(self.value())
-
 class ColorBalanceWidget(QGroupBox):
     """
     Widget to balance three primary colours
@@ -287,22 +144,98 @@ class TwoPointColorBalanceWidget(QGroupBox):
 
         self._shadow_label = QLabel("Shadow Balance", self)
         self.shadow_balance = ColorPicker(self)
-        self.shadow_balance.setMinimum(-0.3)
-        self.shadow_balance.setMaximum(.3)
+        self.shadow_balance.setMinimum(-1)
+        self.shadow_balance.setMaximum(1)
         self.shadow_balance.setValue(0)
 
         self._highlight_label = QLabel("Highlight Balance", self)
         self.highlight_balance = ColorPicker(self)
-        self.highlight_balance.setMinimum(0.7)
-        self.highlight_balance.setMaximum(1.3)
+        self.highlight_balance.setMinimum(0)
+        self.highlight_balance.setMaximum(2)
         self.highlight_balance.setValue(1)
+
+        self.balance_control = ColorBalanceControl(self)
+        self.balance_control.update()
 
         self._layout.addWidget(self._shadow_label)
         self._layout.addWidget(self.shadow_balance)
         self._layout.addWidget(self._highlight_label)
         self._layout.addWidget(self.highlight_balance)
+        self._layout.addWidget(self.balance_control)
 
         self.setLayout(self._layout)
+
+class CDLWidget(QGroupBox):
+    """
+    Widget exposing ASC CDL Primary grading controls
+    """
+
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self._slope_label = QLabel("Slope", self)
+        self.slope = ColorBalanceControl(self)
+        self.slope.update()
+        self._offset_label = QLabel("Offset", self)
+        self.offset = ColorBalanceControl(self)
+        self.offset.update()
+        self._power_label = QLabel("Power", self)
+        self.power = ColorBalanceControl(self)
+        self.power.update()
+
+        self._layout.addWidget(self._slope_label)
+        self._layout.addWidget(self.slope)
+        self._layout.addWidget(self._offset_label)
+        self._layout.addWidget(self.offset)
+        self._layout.addWidget(self._power_label)
+        self._layout.addWidget(self.power)
+
+        self.setLayout(self._layout)
+
+    ################################################################
+    # SLOPE ACCESSORS
+    ################################################################
+
+    def get_slope(self):
+        return self.slope.value()
+
+    def set_slope(self, value: npt.ArrayLike):
+        return self.slope.set_value(value)
+
+    @property
+    def slope_changed(self):
+        return self.slope.value_changed
+
+    ################################################################
+    # OFFSET ACCESSORS
+    ################################################################
+
+    def get_offset(self):
+        return self.offset.value()
+
+    def set_offset(self, value: npt.ArrayLike):
+        return self.offset.set_value(value)
+
+    @property
+    def offset_changed(self):
+        return self.slope.value_changed
+
+    ################################################################
+    # POWER ACCESSORS
+    ################################################################
+
+    def get_power(self):
+        return self.power.value()
+
+    def set_power(self, value: npt.ArrayLike):
+        return self.power.set_value(value)
+
+    @property
+    def power_changed(self):
+        return self.power.value_changed
 
 class CropWidget(QGroupBox):
     def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
@@ -696,72 +629,3 @@ class ViewerOutputWidget(QGroupBox):
         self._layout.addWidget(self.height_input)
 
         self.setLayout(self._layout)
-
-class PipelineWidget(QWidget):
-    def __init__(self, parent: Optional[QWidget] = None,
-        f: Qt.WindowFlags = Qt.WindowFlags()) -> None:
-        super().__init__(parent=parent, f=f)
-
-        self._layout = QVBoxLayout(self)
-        self._layout.setAlignment(Qt.AlignTop)
-        self.setLayout(self._layout)
-
-    def push_step_widget(self, widget: QWidget):
-        self._layout.addWidget(widget)
-
-class ImageRenderer(QOpenGLWidget):
-    """
-    Displays an image on screen
-    """
-    def __init__(self,
-        image: np.ndarray,
-        parent: Optional[QWidget] = None,
-        f: Qt.WindowFlags = Qt.WindowFlags()
-        ) -> None:
-        super().__init__(parent=parent, f=f)
-        self.set_image(image)
-
-        self._overlay = []
-
-    @property
-    def width(self):
-        return self.image.shape[1]
-
-    @property
-    def height(self):
-        return self.image.shape[0]
-
-    def paintEvent(self, event: QPaintEvent):
-        # transform from 0..1 float to 0..255 int
-        flat = self.image.clip(0, 1) * 255
-        flat = flat.astype(np.uint32)
-
-        # shift values into the correct position and create QImage from flat array
-        flat = (255 << 24
-            | flat[:,:,0] << 16
-            | flat[:,:,1] << 8
-            | flat[:,:,2]).flatten()
-        img = QImage(flat,
-            self.image.shape[1], self.image.shape[0],
-            QImage.Format_ARGB32)
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # draw the image
-        painter.drawImage(0, 0, img)
-        # draw overlays
-        painter.setPen(QColor(0, 255, 0))
-        painter.drawRects(self._overlay)
-
-    @property
-    def overlay(self):
-        return self.overlay
-    
-    @overlay.setter
-    def overlay(self, overlay: list[QRect]):
-        self._overlay = overlay
-
-    def set_image(self, image: ImageLike):
-        self.image = image
-        self.setFixedSize(self.image.shape[1], self.image.shape[0])

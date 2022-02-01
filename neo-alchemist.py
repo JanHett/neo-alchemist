@@ -1,9 +1,11 @@
 import sys
 from src.ui.MainWindow import MainWindow
+from PySide2.QtCore import Qt, QCoreApplication
 from PySide2.QtWidgets import QApplication
 import argparse
 
 if __name__ == "__main__":
+    QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     app = QApplication(sys.argv)
 
     parser = argparse.ArgumentParser(
