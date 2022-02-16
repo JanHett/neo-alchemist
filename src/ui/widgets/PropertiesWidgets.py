@@ -1,8 +1,9 @@
 from typing import Optional
-from PySide2.QtCore import Qt, Signal
+from PySide2.QtCore import Qt, Signal, QSize
 from PySide2.QtWidgets import QCheckBox, \
     QFileDialog, \
     QGroupBox, \
+    QScrollArea, \
     QLabel, \
     QPushButton, \
     QSpinBox, \
@@ -12,7 +13,7 @@ from PySide2.QtWidgets import QCheckBox, \
 
 import numpy.typing as npt
 
-from .Atoms import ColorBalanceControl, ColorPicker, LabelledSlider
+from .Atoms import BetterColorPicker, ChromaHuePicker, ColorPicker, LChColorPicker, LabelledSlider
 
 from ...processing.spells import Color
 
@@ -154,22 +155,17 @@ class TwoPointColorBalanceWidget(QGroupBox):
         self.highlight_balance.setMaximum(2)
         self.highlight_balance.setValue(1)
 
-        self.balance_control = ColorBalanceControl(self)
-        self.balance_control.update()
-
         self._layout.addWidget(self._shadow_label)
         self._layout.addWidget(self.shadow_balance)
         self._layout.addWidget(self._highlight_label)
         self._layout.addWidget(self.highlight_balance)
-        self._layout.addWidget(self.balance_control)
 
         self.setLayout(self._layout)
 
-class CDLWidget(QGroupBox):
+class InnerCDLWidget(QGroupBox):
     """
-    Widget exposing ASC CDL Primary grading controls
+    Implementation detail of CDLWidget
     """
-
     def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(title, parent=parent)
 
@@ -177,14 +173,13 @@ class CDLWidget(QGroupBox):
         self._layout.setAlignment(Qt.AlignTop)
 
         self._slope_label = QLabel("Slope", self)
-        self.slope = ColorBalanceControl(self)
-        self.slope.update()
+        self.slope = LChColorPicker(self)
+
         self._offset_label = QLabel("Offset", self)
-        self.offset = ColorBalanceControl(self)
-        self.offset.update()
+        self.offset = LChColorPicker(self)
+
         self._power_label = QLabel("Power", self)
-        self.power = ColorBalanceControl(self)
-        self.power.update()
+        self.power = LChColorPicker(self)
 
         self._layout.addWidget(self._slope_label)
         self._layout.addWidget(self.slope)
@@ -195,47 +190,90 @@ class CDLWidget(QGroupBox):
 
         self.setLayout(self._layout)
 
+    # def sizeHint(self):
+    #     return QSize(256, 512)
+
+class CDLWidget(QGroupBox):
+    """
+    Widget exposing ASC CDL Primary grading controls
+    """
+
+    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(title, parent=parent)
+
+        self._scrollarea = QScrollArea(self)
+        # self._scrollarea.setMinimumWidth(256)
+
+        self._inner_widget = InnerCDLWidget(title, self)
+
+        # self._layout = QVBoxLayout(self)
+        # self._layout.setAlignment(Qt.AlignTop)
+
+        # self._slope_label = QLabel("Slope", self)
+        # self.slope = LChColorPicker(self)
+
+        # self._offset_label = QLabel("Offset", self)
+        # self.offset = LChColorPicker(self)
+
+        # self._power_label = QLabel("Power", self)
+        # self.power = LChColorPicker(self)
+
+        # self._layout.addWidget(self._slope_label)
+        # self._layout.addWidget(self.slope)
+        # self._layout.addWidget(self._offset_label)
+        # self._layout.addWidget(self.offset)
+        # self._layout.addWidget(self._power_label)
+        # self._layout.addWidget(self.power)
+
+        self._scrollarea.setWidget(self._inner_widget)
+
+        self._layout = QVBoxLayout(self)
+
+        self._layout.addWidget(self._scrollarea)
+
+        self.setLayout(self._layout)
+
     ################################################################
     # SLOPE ACCESSORS
     ################################################################
 
     def get_slope(self):
-        return self.slope.value()
+        return self._inner_widget.slope.get_color()
 
     def set_slope(self, value: npt.ArrayLike):
-        return self.slope.set_value(value)
+        return self._inner_widget.slope.set_color(value)
 
     @property
     def slope_changed(self):
-        return self.slope.value_changed
+        return self._inner_widget.slope.color_changed
 
     ################################################################
     # OFFSET ACCESSORS
     ################################################################
 
     def get_offset(self):
-        return self.offset.value()
+        return self._inner_widget.offset.get_color()
 
     def set_offset(self, value: npt.ArrayLike):
-        return self.offset.set_value(value)
+        return self._inner_widget.offset.set_color(value)
 
     @property
     def offset_changed(self):
-        return self.slope.value_changed
+        return self._inner_widget.offset.color_changed
 
     ################################################################
     # POWER ACCESSORS
     ################################################################
 
     def get_power(self):
-        return self.power.value()
+        return self._inner_widget.power.get_color()
 
     def set_power(self, value: npt.ArrayLike):
-        return self.power.set_value(value)
+        return self._inner_widget.power.set_color(value)
 
     @property
     def power_changed(self):
-        return self.power.value_changed
+        return self._inner_widget.power.color_changed
 
 class CropWidget(QGroupBox):
     def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:

@@ -11,6 +11,10 @@ import rawpy
 import OpenImageIO as oiio
 import lcms
 
+from colorio.cs import ColorCoordinates, CIELCH, XYZ
+
+from ..util.data_storage_utils import np_to_list
+
 from ..processing.spells import ImageFit, \
     ImageLike, cdl, \
     fit_image, \
@@ -35,7 +39,7 @@ from .widgets.PropertiesWidgets import AddWidget, AndWidget, CDLWidget, ColorBal
     TwoPointColorBalanceWidget, \
     ViewerOutputWidget
 
-from .widgets.Atoms import ImageRenderer
+from .widgets.Atoms import D60, ImageRenderer, draw_color_wheel_lch
 
 ORG_IDENTIFIER = "engineering.brotzeit"
 
@@ -170,12 +174,14 @@ class ReactiveProperty:
         ui_getter: Callable,
         ui_setter: Callable,
         ui_updated_signal: Signal,
-        signal_handler: Callable) -> None:
+        signal_handler: Callable,
+        formatter: Callable) -> None:
         self.name              = name
         self.ui_getter         = ui_getter
         self.ui_setter         = ui_setter
         self.ui_updated_signal = ui_updated_signal
         self.signal_handler    = signal_handler
+        self.formatter         = formatter
 
 class InputHandler:
     def __init__(self, handler: ImageCache.SubscriberCallback) -> None:
@@ -239,17 +245,27 @@ class NeoAlchemistNode(BaseNode):
         initial_value,
         ui_getter: Callable,
         ui_setter: Callable,
-        ui_updated_signal: Signal):
+        ui_updated_signal: Signal,
+        formatter = lambda v : v):
         """
         Defines a node property whose value is linked with that of a UI element
 
         The type of the property must match the UI element's getter return type
         and setter argument type.
+
+        Parameters
+        ---
+        ...
+
+        formatter:
+            Function to transform the value before storing it into the property
         """
+        self.create_property(name, formatter(initial_value))
+
         def signal_handler(*args):
             # this change is coming from the UI, no need to go the complicated
             # way for setting the property
-            self._set_property(name, ui_getter())
+            self._set_property(name, formatter(ui_getter()))
 
         ui_updated_signal.connect(signal_handler)
 
@@ -258,20 +274,28 @@ class NeoAlchemistNode(BaseNode):
             ui_getter,
             ui_setter,
             ui_updated_signal,
-            signal_handler)
+            signal_handler,
+            formatter)
 
         ui_setter(initial_value)
-        self.create_property(name, initial_value)
 
     def _set_property(self, name, value):
         """
         Set property `name` to `value` without updating the UI elements
         associated with reactive properties
         """
-        rv = super().set_property(name, value)
+        is_reactive_prop = name in self._reactive_properties
+
+        # format reactive property according to specified formatter
+        if is_reactive_prop:
+            v = self._reactive_properties[name].formatter(value)
+        else:
+            v = value
+
+        rv = super().set_property(name, v)
 
         # only invalidate cache for custom properties
-        if name not in self.model.properties.keys():
+        if is_reactive_prop:
             # update ImageCache for all outputs
             for out in self._out_values.values():
                 out.invalidate_cache()
@@ -525,6 +549,7 @@ class ColorSpaceTransformNode(NeoAlchemistNode):
             self._properties_widget.to_space_changed)
 
     def _handle_request_image_data(self, roi: ROI):
+        # TODO: seems to be overwriting despite copy
         in_img = self.in_value("Image").get(roi).copy().astype(np.float32)
 
         proc = global_ocio.get_processor(self.get_property("from_space"),
@@ -543,7 +568,7 @@ class ComvertICCProfileNode(NeoAlchemistNode):
         self.define_input("Image")
         self.define_output("Image", ImageCache(self._handle_request_image_data))
 
-        self._properties_widget = ComvertICCProfileWidget(self.NODE_NAME)
+        self._properties_widget = ConvertICCProfileWidget(self.NODE_NAME)
 
     def _handle_request_image_data(self, roi: ROI):
         in_img = self.in_value("Image").get(roi)
@@ -647,7 +672,6 @@ class TwoPointColorBalanceNode(NeoAlchemistNode):
             self._properties_widget.highlight_balance.color_changed)
 
     def _handle_request_image_data(self, roi: ROI):
-        self._properties_widget.balance_control.update()
         return two_point_color_balance(self.in_value("Image").get(roi),
             self.shadow_balance, self.highlight_balance)
 
@@ -694,37 +718,44 @@ class CDLNode(NeoAlchemistNode):
 
         self._properties_widget = CDLWidget(self.NODE_NAME)
 
-        self.reactive_property("slope", np.array((1, 1, 1)),
+        # watch(self._model._custom_prop, cmp=lambda a, b: not np.array_equal(a, b))
+
+        self.reactive_property("slope", (1, 1, 1),
             self._properties_widget.get_slope,
             self._properties_widget.set_slope,
-            self._properties_widget.slope_changed)
+            self._properties_widget.slope_changed,
+            np_to_list)
 
-        self.reactive_property("offset", np.array((0, 0, 0)),
+        self.reactive_property("offset", (1, 1, 1),
             self._properties_widget.get_offset,
             self._properties_widget.set_offset,
-            self._properties_widget.offset_changed)
+            self._properties_widget.offset_changed,
+            np_to_list)
 
-        self.reactive_property("power", np.array((1, 1, 1)),
+        self.reactive_property("power", (1, 1, 1),
             self._properties_widget.get_power,
             self._properties_widget.set_power,
-            self._properties_widget.power_changed)
+            self._properties_widget.power_changed,
+            np_to_list)
 
     def _handle_request_image_data(self, roi: ROI):
-        self._properties_widget.balance_control.update()
         return cdl(self.in_value("Image").get(roi),
             self.slope, self.offset, self.power)
 
     @property
     def slope(self):
-        return self.get_property("slope")
+        return self._properties_widget.get_slope()
+        # return self.get_property("slope")
 
     @property
     def offset(self):
-        return self.get_property("offset")
+        return self._properties_widget.get_offset() - 1
+        # return self.get_property("offset") - 1
 
     @property
     def power(self):
-        return self.get_property("power")
+        return self._properties_widget.get_power()
+        # return self.get_property("power")
 
 class InvertNode(NeoAlchemistNode):
     NODE_NAME = "Invert"

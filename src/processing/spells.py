@@ -163,7 +163,7 @@ def cdl(image: ImageLike,
     slope: npt.ArrayLike,
     offset: npt.ArrayLike,
     power: npt.ArrayLike) -> ImageLike:
-    return (image * slope + offset) ** power
+    return np.clip(image * slope + offset, 0, None) ** power
 
 @njit(parallel=True)
 def invert(image: ImageLike):

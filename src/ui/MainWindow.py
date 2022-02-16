@@ -2,8 +2,11 @@
 # Entry point to the Graphical interface of the Neo Alchemist
 ################################################################################
 
+import os
+
 from PySide2.QtCore import Qt
-from PySide2.QtWidgets import QDockWidget, QMainWindow
+from PySide2.QtGui import QIcon
+from PySide2.QtWidgets import QDockWidget, QMainWindow, QScrollArea
 
 from NodeGraphQt import NodeGraph, Port, BackdropNode, setup_context_menu
 
@@ -37,7 +40,9 @@ class MainWindow(QMainWindow):
     def __init__(self, cl_args) -> None:
         super().__init__()
 
+        dir = os.path.dirname(os.path.abspath(__file__))
         self.setWindowTitle("Neo Alchemist")
+        self.setWindowIcon(QIcon(os.path.join(dir, "../../data/assets/icon.png")))
         
         #cl_args.file
         viewer = ViewerWidget(self)
