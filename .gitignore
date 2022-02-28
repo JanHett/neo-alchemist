@@ -2,5 +2,6 @@ __pycache__
 .vscode
 build
 .env
-*.iiq
 data/test_out/**
+data/test_images/**
+data/test_recipes/**

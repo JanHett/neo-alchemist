@@ -11,7 +11,7 @@ from PySide2.QtWidgets import QDockWidget, QMainWindow, QScrollArea
 from NodeGraphQt import NodeGraph, Port, BackdropNode, setup_context_menu
 
 from .widgets.Atoms import ViewerWidget
-from .Nodes import \
+from .nodes import \
     SolidNode, \
     RawFileInputNode, \
     FileOutputNode, \
